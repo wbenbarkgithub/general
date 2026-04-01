@@ -1,0 +1,18 @@
+# Example file list for batch-file-transfer.sh
+# Lines starting with # are ignored
+# One file path per line
+
+# Example files (update paths as needed):
+/Users/wbenbark/Downloads/Wireshark-4.4.3-x64.exe
+/Users/wbenbark/Downloads/Wireshark-4.6.4-x64.exe
+
+# SMU patches:
+# /path/to/cat9k_iosxe.17.15.04.CSCwr84543.SPA.smu.bin
+# /path/to/cat9k_iosxe.17.15.04.CSCwq31287.SPA.smu.bin
+
+# IOS-XE images:
+# /path/to/cat9k_iosxe.17.15.04.SPA.bin
+
+# Config backups:
+# /path/to/configs/device1-config.txt
+# /path/to/configs/device2-config.txt
