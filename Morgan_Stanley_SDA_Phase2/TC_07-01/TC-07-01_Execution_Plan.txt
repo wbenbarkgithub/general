@@ -1,0 +1,590 @@
+================================================================================
+TC 07-01 EXECUTION PLAN - READY FOR COPY/PASTE
+================================================================================
+Link Failure from L2 Border Port-Channel Member to Fabric BC Node
+Date: ___________  Engineer: ___________  Iteration: [ ] 1  [ ] 2  [ ] 3
+================================================================================
+
+DEVICE ACCESS QUICK REFERENCE:
+  FS2_L2H-1:  ssh admin1@172.31.0.194  (CXlabs.123)  <<<< PRIMARY DUT
+  FS2_BC1:    ssh admin1@172.31.2.0    (CXlabs.123)  <<<< PEER
+  FS2_BC2:    ssh admin1@172.31.2.2    (CXlabs.123)
+  L2-DIST-1:  ssh admin@172.31.0.193   (CXlabs.123)
+  L2-DIST-2:  ssh admin@172.31.0.180   (CXlabs.123)
+  Catalyst Center: https://172.31.229.151  (admin/CXlabs.123)
+  Spirent: 172.31.0.101
+
+TARGET:
+  Device: FS2_L2H-1 (C9404R)
+  Port-Channel: Po40 (LACP, L3, 192.168.40.0/31)
+  Member to shutdown: TenGigabitEthernet4/0/1
+  Surviving member:   TenGigabitEthernet4/0/2
+  Remote end (BC1):   FiftyGigE1/0/13 (shutdown target), FiftyGigE1/0/14
+
+================================================================================
+PREREQUISITES (Before starting - verify ALL)
+================================================================================
+
+  [ ] VPN connected to lab (172.31.x.x reachable)
+  [ ] SSH to FS2_L2H-1 (172.31.0.194) confirmed
+  [ ] SSH to FS2_BC1 (172.31.2.0) confirmed
+  [ ] Spirent GUI open (172.31.0.101), all streams running
+  [ ] Catalyst Center GUI open (172.31.229.151)
+  [ ] Terminal logging ON (save all session output)
+  [ ] Spirent baseline: 0.000% loss (MANDATORY GATE)
+
+================================================================================
+================================================================================
+  PHASE 1: STEADY STATE BASELINE
+================================================================================
+================================================================================
+
+Start Time: __________
+
+--------------------------------------------------------------------------------
+STEP 1.1: SPIRENT BASELINE (MANDATORY GATE)
+--------------------------------------------------------------------------------
+
+Actions:
+1. Open Spirent GUI -> verify all streams RUNNING (green)
+2. Check dead streams: MUST be 0
+3. Clear counters -> wait 60 seconds
+4. Verify: Frame Loss = 0, Frame Loss % = 0.000%
+5. Screenshot: Iter{n}_Pre_Spirent_Baseline.png
+
+  Total TX: ___________  Total RX: ___________
+  Frame Loss: _____  Loss %: _____% (MUST be 0.000%)
+  Dead Streams: _____ (MUST be 0)
+
+RESULT: [ ] PASS  [ ] FAIL -> If FAIL, DO NOT PROCEED
+
+--------------------------------------------------------------------------------
+STEP 1.2: CATALYST CENTER - L2H-1 HEALTH
+--------------------------------------------------------------------------------
+
+1. Provision > Inventory > FS2_L2H_1
+   Reachability: ___________ (Expected: Reachable)
+   Health Score: _____% (MUST be >= 80%)
+   Collection Status: ___________
+
+2. Device 360 > Alarms:
+   Critical: _____ (MUST be 0)  Major: _____  Minor: _____
+
+3. Screenshot: Iter{n}_Pre_CC_L2H1_Health.png
+
+4. Assurance > Health:
+   Network Health: _____%  Client Health: _____%
+   Screenshot: Iter{n}_Pre_CC_Network_Health.png
+
+RESULT: [ ] PASS  [ ] FAIL
+
+--------------------------------------------------------------------------------
+STEP 1.3: CLI BASELINE - FS2_L2H-1 (172.31.0.194)
+--------------------------------------------------------------------------------
+Save output to: Iter{n}_Pre_L2H1_Baseline.txt
+
+--- COPY/PASTE BLOCK START (L2H-1) ---
+
+terminal length 0
+show version | include uptime
+show etherchannel 40 summary
+show etherchannel 40 detail
+show interfaces Port-channel40
+show interfaces Port-channel40 | include packets input|packets output|BW|line protocol
+show interfaces TenGigabitEthernet4/0/1
+show interfaces TenGigabitEthernet4/0/1 | include packets input|packets output|CRC|line protocol
+show interfaces TenGigabitEthernet4/0/2
+show interfaces TenGigabitEthernet4/0/2 | include packets input|packets output|CRC|line protocol
+show lacp 40 counters
+show lacp 40 neighbor
+show lacp 40 internal
+show ip interface brief | include up
+show ip route summary
+show ip ospf neighbor
+show lisp session
+show lisp instance-id * ethernet server
+show cts role-based permissions
+show cts role-based counters
+show logging | tail 30
+
+--- COPY/PASTE BLOCK END ---
+
+Record baseline values:
+  Po40 Status: [ ] UP  BW: _____ Kbit
+  Te4/0/1: [ ] Bundled (P)  Pkts In: ___________  Pkts Out: ___________
+  Te4/0/2: [ ] Bundled (P)  Pkts In: ___________  Pkts Out: ___________
+  LISP Sessions UP: _____  (Expected: 2)
+  OSPF Neighbors FULL: _____
+  Routes (total subnets): _____  (Expected: 28)
+  CTS Permit Count: _____
+  CTS Deny Count: _____
+
+RESULT: [ ] PASS  [ ] FAIL
+
+--------------------------------------------------------------------------------
+STEP 1.4: CLI BASELINE - FS2_BC1 (172.31.2.0)
+--------------------------------------------------------------------------------
+Save output to: Iter{n}_Pre_BC1_Baseline.txt
+
+--- COPY/PASTE BLOCK START (BC1) ---
+
+terminal length 0
+show version | include uptime
+show etherchannel 40 summary
+show etherchannel 40 detail
+show interfaces Port-channel40
+show interfaces Port-channel40 | include packets input|packets output|BW|line protocol
+show interfaces FiftyGigE1/0/13 | include packets input|packets output|CRC|line protocol
+show interfaces FiftyGigE1/0/14 | include packets input|packets output|CRC|line protocol
+show lacp 40 counters
+show ip interface brief | include up|up
+show ip bgp summary
+show ip ospf neighbor
+show lisp session
+show logging | tail 30
+
+--- COPY/PASTE BLOCK END ---
+
+Record baseline values:
+  Po40 Status: [ ] UP  BW: _____ Kbit
+  Fif1/0/13: [ ] Bundled (P)
+  Fif1/0/14: [ ] Bundled (P)
+  BGP Peers Established: _____
+  LISP Sessions UP: _____
+  OSPF Neighbors FULL: _____
+
+RESULT: [ ] PASS  [ ] FAIL
+
+--------------------------------------------------------------------------------
+PHASE 1 GATE CHECK
+--------------------------------------------------------------------------------
+
+  [ ] Spirent 0.000% loss, 0 dead streams
+  [ ] CC: L2H-1 health >= 80%, 0 critical alarms
+  [ ] L2H-1: Po40 UP, both members bundled, 2 LISP sessions
+  [ ] BC1: Po40 UP, both members bundled, BGP established
+  [ ] All screenshots captured (3)
+  [ ] All CLI outputs saved (2)
+
+  *** GATE DECISION: [ ] PROCEED TO PHASE 2  [ ] STOP ***
+
+Phase 1 End Time: __________  Duration: _____ min
+
+
+================================================================================
+================================================================================
+  PHASE 2: FAILURE EVENT - SHUTDOWN Te4/0/1 ON L2H-1
+================================================================================
+================================================================================
+
+Start Time: __________
+
+--------------------------------------------------------------------------------
+STEP 2.1: INTRODUCE FAILURE
+--------------------------------------------------------------------------------
+
+On FS2_L2H-1 (172.31.0.194):
+
+--- COPY/PASTE BLOCK START (FAILURE COMMAND) ---
+
+configure terminal
+interface TenGigabitEthernet4/0/1
+shutdown
+end
+
+--- COPY/PASTE BLOCK END ---
+
+  TIMESTAMP of shutdown: __________
+
+--------------------------------------------------------------------------------
+STEP 2.2: IMMEDIATE VERIFICATION (within 10 seconds)
+--------------------------------------------------------------------------------
+
+--- COPY/PASTE BLOCK START (IMMEDIATE CHECK) ---
+
+show etherchannel 40 summary
+show interfaces Port-channel40 | include line protocol|BW
+show interfaces TenGigabitEthernet4/0/1 | include line protocol
+show interfaces TenGigabitEthernet4/0/2 | include line protocol
+
+--- COPY/PASTE BLOCK END ---
+
+  Po40 Status: [ ] UP (EXPECTED)  [ ] DOWN (FAIL - STOP TEST)
+  Po40 BW: _____ Kbit (Expected: ~10000000, was ~20000000)
+  Te4/0/1: [ ] DOWN/shutdown (EXPECTED)
+  Te4/0/2: [ ] UP/bundled (EXPECTED)
+
+  *** IF Po40 DOWN: IMMEDIATELY go to PHASE 3 RECOVERY ***
+
+RESULT: [ ] Po40 UP (continue)  [ ] Po40 DOWN (abort)
+
+--------------------------------------------------------------------------------
+STEP 2.3: SPIRENT MONITORING (every 30 sec for 3 min)
+--------------------------------------------------------------------------------
+
+  T+0:30  Loss %: ______  Dead Streams: _____
+  T+1:00  Loss %: ______  Dead Streams: _____
+  T+1:30  Loss %: ______  Dead Streams: _____
+  T+2:00  Loss %: ______  Dead Streams: _____
+  T+2:30  Loss %: ______  Dead Streams: _____
+  T+3:00  Loss %: ______  Dead Streams: _____
+
+  Screenshot at T+2:00: Iter{n}_During_Spirent_Monitor.png
+
+--- IF LOSS > 0.001% ---
+  [ ] STOP traffic
+  [ ] Record: Frame Loss: _____  Loss %: _____%
+  [ ] Export DB: Iter{n}_During_Spirent_DB.tcc
+  [ ] Upload to PLA: http://spirent-pla.cisco.com
+  [ ] Download PLA Excel
+  [ ] Screenshot PLA: Iter{n}_During_PLA_Analysis.png
+
+--- IF LOSS = 0.000% (EXPECTED) ---
+  [ ] Hitless - traffic continues running
+  [ ] Screenshot confirms 0.000%
+
+RESULT: [ ] 0.000% (Hitless)  [ ] Loss _____%
+
+--------------------------------------------------------------------------------
+STEP 2.4: L2H-1 DURING-FAILURE CLI (within 60 sec)
+--------------------------------------------------------------------------------
+Save output to: Iter{n}_During_L2H1_Failure.txt
+
+--- COPY/PASTE BLOCK START (L2H-1 DURING) ---
+
+show logging | tail 20
+show etherchannel 40 summary
+show etherchannel 40 detail
+show interfaces Port-channel40 | include line protocol|BW|packets input|packets output
+show lacp 40 counters
+show lacp 40 neighbor
+show ip ospf neighbor
+show lisp session
+show ip route summary
+show cts role-based counters
+
+--- COPY/PASTE BLOCK END ---
+
+Record:
+  Syslog messages: ________________________________________________
+  Po40 Status: ___________  BW: ___________
+  LACP counters change: [ ] YES  [ ] NO
+  OSPF neighbor to BC1: [ ] FULL (EXPECTED)  [ ] DOWN
+  LISP sessions: _____ UP (Expected: 2)
+  Routes (subnets): _____ (Expected: 28, same as baseline)
+  CTS Deny increase: [ ] YES  [ ] NO (Expected: NO)
+
+RESULT: [ ] Expected behavior  [ ] Unexpected
+
+--------------------------------------------------------------------------------
+STEP 2.5: BC1 DURING-FAILURE STATUS
+--------------------------------------------------------------------------------
+Save output to: Iter{n}_During_BC1_Status.txt
+
+--- COPY/PASTE BLOCK START (BC1 DURING) ---
+
+show logging | tail 20
+show etherchannel 40 summary
+show interfaces Port-channel40 | include line protocol|BW
+show lacp 40 counters
+show ip ospf neighbor
+show lisp session
+
+--- COPY/PASTE BLOCK END ---
+
+Record:
+  BC1 Po40 Status: [ ] UP (EXPECTED)  [ ] DOWN
+  BC1 Fif1/0/13: [ ] DOWN (EXPECTED - partner shut)
+  BC1 Fif1/0/14: [ ] Bundled (EXPECTED)
+  BC1 OSPF to L2H-1: [ ] FULL (EXPECTED)
+
+RESULT: [ ] Expected  [ ] Unexpected
+
+--------------------------------------------------------------------------------
+STEP 2.6: CATALYST CENTER DURING-FAILURE
+--------------------------------------------------------------------------------
+
+  Provision > Inventory > FS2_L2H_1:
+    Reachability: ___________
+    Health: _____%
+
+  Screenshot: Iter{n}_During_CC_L2H1_Status.png
+
+RESULT: [ ] Expected  [ ] Unexpected
+
+--------------------------------------------------------------------------------
+PHASE 2 CHECKLIST
+--------------------------------------------------------------------------------
+
+  [ ] Failure introduced, timestamp recorded
+  [ ] Po40 remained UP (CRITICAL)
+  [ ] Spirent: 0.000% or <= 0.001%
+  [ ] Zero dead flows
+  [ ] LISP sessions remained UP
+  [ ] OSPF adjacency stable
+  [ ] All CLI outputs saved (2)
+  [ ] All screenshots captured (2)
+
+  *** PROCEED TO PHASE 3: [ ] YES  [ ] NO ***
+
+Phase 2 End Time: __________  Duration: _____ min
+
+
+================================================================================
+================================================================================
+  PHASE 3: RECOVERY - RESTORE Te4/0/1 ON L2H-1
+================================================================================
+================================================================================
+
+Start Time: __________
+
+--------------------------------------------------------------------------------
+STEP 3.1: RESTORE MEMBER LINK
+--------------------------------------------------------------------------------
+
+On FS2_L2H-1 (172.31.0.194):
+
+--- COPY/PASTE BLOCK START (RECOVERY COMMAND) ---
+
+configure terminal
+interface TenGigabitEthernet4/0/1
+no shutdown
+end
+
+--- COPY/PASTE BLOCK END ---
+
+  TIMESTAMP of restoration: __________
+
+--------------------------------------------------------------------------------
+STEP 3.2: VERIFY RE-BUNDLE (monitor every 5 sec for 30 sec)
+--------------------------------------------------------------------------------
+
+--- COPY/PASTE BLOCK START (REBUNDLE CHECK) ---
+
+show etherchannel 40 summary
+show interfaces Port-channel40 | include line protocol|BW
+show interfaces TenGigabitEthernet4/0/1 | include line protocol
+
+--- COPY/PASTE BLOCK END ---
+
+  T+5s:  Te4/0/1 Status: ___________  Po40 Members: _____
+  T+10s: Te4/0/1 Status: ___________  Po40 Members: _____
+  T+15s: Te4/0/1 Status: ___________  Po40 Members: _____
+  T+20s: Te4/0/1 Status: ___________  Po40 Members: _____
+  T+30s: Te4/0/1 Status: ___________  Po40 Members: _____
+
+  LACP rebundle time: _____ seconds (Expected: < 30 sec)
+  Po40 BW restored: [ ] YES (20 Gbps)  [ ] NO
+
+RESULT: [ ] Re-bundled  [ ] FAIL
+
+--------------------------------------------------------------------------------
+STEP 3.3: SPIRENT VALIDATION
+--------------------------------------------------------------------------------
+
+--- IF TRAFFIC WAS RUNNING (expected) ---
+  Loss %: _____% (Expected: 0.000%)
+  Dead Streams: _____ (Expected: 0)
+  Screenshot: Iter{n}_Post_Spirent_Restored.png
+
+--- IF TRAFFIC WAS STOPPED ---
+  [ ] Wait 60 seconds after rebundle
+  [ ] Start traffic
+  [ ] Verify all streams running
+  [ ] Clear counters, wait 60 seconds
+  [ ] Record: Loss %: _____%
+  [ ] Screenshot: Iter{n}_Post_Spirent_Restored.png
+
+RESULT: [ ] PASS (0.000%)  [ ] FAIL
+
+--------------------------------------------------------------------------------
+STEP 3.4: FULL L2H-1 POST-RECOVERY VALIDATION
+--------------------------------------------------------------------------------
+Save output to: Iter{n}_Post_L2H1_Validation.txt
+
+--- COPY/PASTE BLOCK START (L2H-1 POST) ---
+
+terminal length 0
+show etherchannel 40 summary
+show etherchannel 40 detail
+show interfaces Port-channel40
+show interfaces Port-channel40 | include packets input|packets output|BW|line protocol
+show interfaces TenGigabitEthernet4/0/1
+show interfaces TenGigabitEthernet4/0/1 | include packets input|packets output|CRC|line protocol
+show interfaces TenGigabitEthernet4/0/2
+show interfaces TenGigabitEthernet4/0/2 | include packets input|packets output|CRC|line protocol
+show lacp 40 counters
+show lacp 40 neighbor
+show lacp 40 internal
+show ip interface brief | include up
+show ip route summary
+show ip ospf neighbor
+show lisp session
+show lisp instance-id * ethernet server
+show cts role-based permissions
+show cts role-based counters
+show logging | tail 30
+
+--- COPY/PASTE BLOCK END ---
+
+Compare to Phase 1 Baseline:
+                         Post-Recovery    Baseline    Match?
+  Po40 Status:           ____________     UP          [ ]
+  Po40 BW:               ____________     20000000    [ ]
+  Te4/0/1:               ____________     Bundled(P)  [ ]
+  Te4/0/2:               ____________     Bundled(P)  [ ]
+  LISP Sessions UP:      ____________     _____       [ ]
+  OSPF Neighbors FULL:   ____________     _____       [ ]
+  Routes (subnets):      ____________     _____       [ ]
+  CTS Permit Count:      ____________     _____       [ ]
+  CTS Deny Count:        ____________     _____       [ ] (no increase)
+
+RESULT: [ ] ALL MATCH  [ ] DELTAS (document below)
+
+--------------------------------------------------------------------------------
+STEP 3.5: FULL BC1 POST-RECOVERY VALIDATION
+--------------------------------------------------------------------------------
+Save output to: Iter{n}_Post_BC1_Validation.txt
+
+--- COPY/PASTE BLOCK START (BC1 POST) ---
+
+terminal length 0
+show etherchannel 40 summary
+show etherchannel 40 detail
+show interfaces Port-channel40
+show interfaces FiftyGigE1/0/13 | include line protocol|packets input
+show interfaces FiftyGigE1/0/14 | include line protocol|packets input
+show lacp 40 counters
+show ip bgp summary
+show ip ospf neighbor
+show lisp session
+show logging | tail 30
+
+--- COPY/PASTE BLOCK END ---
+
+Compare to Phase 1 Baseline:
+                         Post-Recovery    Baseline    Match?
+  Po40 Status:           ____________     UP          [ ]
+  Fif1/0/13:             ____________     Bundled(P)  [ ]
+  Fif1/0/14:             ____________     Bundled(P)  [ ]
+  BGP Peers Estab:       ____________     _____       [ ]
+  LISP Sessions UP:      ____________     _____       [ ]
+  OSPF Neighbors FULL:   ____________     _____       [ ]
+
+RESULT: [ ] ALL MATCH  [ ] DELTAS
+
+--------------------------------------------------------------------------------
+STEP 3.6: CATALYST CENTER POST-RECOVERY
+--------------------------------------------------------------------------------
+
+  Provision > Inventory > FS2_L2H_1:
+    Reachability: ___________ (Expected: Reachable)
+    Health: _____% (Expected: >= 80%)
+  Screenshot: Iter{n}_Post_CC_L2H1_Health.png
+
+  Assurance > Health:
+    Network Health: _____% (Expected: >= 80%)
+    Client Health: _____%
+  Screenshot: Iter{n}_Post_CC_Network_Health.png
+
+RESULT: [ ] PASS  [ ] FAIL
+
+--------------------------------------------------------------------------------
+PHASE 3 CHECKLIST
+--------------------------------------------------------------------------------
+
+  [ ] Te4/0/1 restored, re-bundled into Po40
+  [ ] LACP rebundle time: _____ sec (< 30 sec)
+  [ ] Po40 bandwidth restored to 20 Gbps
+  [ ] Spirent 0.000% loss
+  [ ] All L2H-1 metrics match Phase 1 baseline
+  [ ] All BC1 metrics match Phase 1 baseline
+  [ ] CC: L2H-1 health >= 80%
+  [ ] CC: Network health >= 80%
+  [ ] All CLI outputs saved (2)
+  [ ] All screenshots captured (3)
+
+Phase 3 End Time: __________  Duration: _____ min
+
+================================================================================
+ITERATION RESULT SUMMARY
+================================================================================
+
+Iteration: _____  Date: __________
+Start: __________  End: __________  Total Duration: _____ min
+
+Phase 1 (Baseline):  [ ] PASS  [ ] FAIL
+Phase 2 (Failure):   [ ] PASS  [ ] FAIL
+Phase 3 (Recovery):  [ ] PASS  [ ] FAIL
+
+Key Metrics:
+  Packet Loss During Failure: _____%
+  Dead Flows: _____
+  Po40 Stayed UP: [ ] YES  [ ] NO
+  LACP Rebundle Time: _____ sec
+  LISP Sessions Maintained: [ ] YES  [ ] NO
+  OSPF Adjacency Maintained: [ ] YES  [ ] NO
+  Full Baseline Restored: [ ] YES  [ ] NO
+
+Iteration Result: [ ] PASS  [ ] CONDITIONAL PASS  [ ] FAIL
+
+Notes: ________________________________________________________________
+_______________________________________________________________________
+
+
+================================================================================
+3-ITERATION COMPARISON TABLE (Complete after all 3 runs)
+================================================================================
+
+Metric                    | Iter1    | Iter2    | Iter3    | Avg      | +/-20%?
+--------------------------|----------|----------|----------|----------|--------
+Packet Loss (%)           |          |          |          |          | [ ]
+Dead Flows                |          |          |          |          | [ ]
+Po40 Stayed UP            |          |          |          |   N/A    | [ ]
+LACP Rebundle Time (sec)  |          |          |          |          | [ ]
+LISP Sessions Maintained  |          |          |          |   N/A    | [ ]
+OSPF Maintained           |          |          |          |   N/A    | [ ]
+Baseline Restored         |          |          |          |   N/A    | [ ]
+
+Consistency: [ ] All within +/- 20%  [ ] Variance detected
+
+OVERALL TEST RESULT: [ ] PASS  [ ] CONDITIONAL PASS  [ ] FAIL
+
+Approved by: _________________ Date: __________
+
+
+================================================================================
+ROLLBACK PLAN (If test must be aborted at any point)
+================================================================================
+
+On FS2_L2H-1 (172.31.0.194):
+
+  configure terminal
+  interface TenGigabitEthernet4/0/1
+  no shutdown
+  end
+
+  show etherchannel 40 summary
+  ! Verify Te4/0/1 re-bundles into Po40
+
+If Po40 completely DOWN (both members failed - UNLIKELY):
+  ! Check Te4/0/2 as well
+  configure terminal
+  interface TenGigabitEthernet4/0/2
+  no shutdown
+  end
+
+  ! Wait 30 seconds for LACP to negotiate
+  show etherchannel 40 summary
+
+  ! If still down, check BC1 side:
+  ! ssh admin1@172.31.2.0
+  ! show etherchannel 40 summary
+  ! show interfaces FiftyGigE1/0/13
+  ! show interfaces FiftyGigE1/0/14
+
+Contact: Lab support / escalate to SVS lead
+
+================================================================================
+END OF EXECUTION PLAN
+================================================================================
