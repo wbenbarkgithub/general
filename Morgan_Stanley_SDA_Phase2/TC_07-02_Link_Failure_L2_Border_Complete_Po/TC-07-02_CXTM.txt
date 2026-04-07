@@ -1,0 +1,391 @@
+================================================================================
+TC 07-02: Link Failure from L2 Border Port-Channel to Fabric BC Node
+================================================================================
+
+Project:    Morgan Stanley SDA Phase 2
+Phase:      07 - Negative Testing - Layer 2 Border
+CXTM ID:    TBD
+Identifier: 07-02
+Suite:      05 - April-10 - Akshit
+Owner:      wbenbark
+Defects:    TBD
+Date:       April 2026
+
+================================================================================
+DESCRIPTION
+================================================================================
+
+Validate SDA fabric resilience when the ENTIRE LACP Port-Channel bundle
+between the L2 Border node (FS2_L2H-1) and the Fabric Border Controller
+(FS2_BC1) is shut down. This tests the complete failure of the primary L2
+handoff uplink path, forcing traffic to fail over to the secondary path
+(FS2_BC2) or reconverge after restoration.
+
+Port-Channel 40 uses LACP with two 10G member links. Shutting down BOTH
+members causes Po40 to go DOWN (protocol down), which triggers:
+- OSPF adjacency down (expected)
+- LISP sessions drop (expected)
+- L2 handoff traffic reconvergence via alternate paths
+- Catalyst Center will mark L2H-1 as degraded or partially reachable
+
+This is a MORE SEVERE failure than TC 07-01 (single member). Packet loss
+IS EXPECTED during the failure window. The goal is to measure convergence
+time and validate that traffic fully restores after recovery.
+
+Expected impact: Measurable packet loss (convergence time typically 3-10s),
+dead flows during failure, full restoration after recovery.
+
+================================================================================
+TOPOLOGY
+================================================================================
+
+                    FS2_L2H-1 (L2 Border)                FS2_BC1 (Border Controller)
+                    C9404R / 172.31.0.194                 C9606R / 172.31.2.0
+                    Loopback0: 192.168.102.40             Loopback0: 192.168.100.1
+
+                    Te4/0/1  ─────────────────────── Fif1/0/13  <<<< SHUTDOWN
+                        \                                /
+                    Po40 (LACP, L3)                   Po40 (LACP, L3)
+                    192.168.40.0/31                   192.168.40.1/31
+                        /                                \
+                    Te4/0/2  ─────────────────────── Fif1/0/14  <<<< SHUTDOWN
+
+                            BOTH MEMBERS SHUT DOWN
+                            Po40 goes DOWN (no bundled members)
+
+  L2H-1 also connects to:
+    Te4/0/20 ──── FS2_L2_DIST_1 (Legacy, C9404R, 172.31.0.193)
+    Te4/0/21 ──── L2-DIST-2      (Legacy, C9404R, 172.31.0.180)
+
+  L2H-1 LISP sessions (will DROP when Po40 down):
+    192.168.100.1:4342 (FS2_BC1) - Established → Down
+    192.168.100.2:4342 (FS2_BC2) - Established
+
+  L2 Handoff VLANs on L2H-1:
+    Vlan101  - 10.5.28.1  (BMS L2 handoff)
+    Vlan1301 - 10.5.20.1  (EUT)
+
+  LISP Instances:
+    L2LISP0.8188, L2LISP0.8190 (L2VNI - ethernet)
+    LISP0.4099, LISP0.4102, LISP0.4104, LISP0.4107 (L3VNI - ipv4)
+
+  Routing: OSPF process 1 → adjacency to BC1 will GO DOWN
+  Traffic: ~360 Mbps inbound on Po40 → will experience convergence loss
+
+================================================================================
+SETUP
+================================================================================
+
+Morgan Stanley SDA Phase 2 Testbed - RTP S10-360, Row P, Racks 18-25
+
+ARCHITECTURE:
+- 4 Fabric Sites: FS1 (4 devices), FS2 (10 devices), DC1/FS4 (4), DC2/FS5 (4)
+- 3-Layer DMZ: Border Controllers -> EDMZ (VRF-aware) -> IDMZ (GRT)
+- 22 Catalyst Center managed devices (IOS-XE 17.15.4)
+- Catalyst Center 2.3.7.9-70301 (DC1 Active, DC2 Standby)
+- ISE 3.2-P7 (4 physical + 14 virtual PSNs)
+
+KEY DEVICES FOR THIS TEST:
+- PRIMARY DUT: FS2_L2H-1 (C9404R, 172.31.0.194, admin1/CXlabs.123)
+- PEER DEVICE: FS2_BC1   (C9606R, 172.31.2.0,   admin1/CXlabs.123)
+- FAILOVER TO: FS2_BC2   (C9606R, 172.31.2.2,   admin1/CXlabs.123)
+- LEGACY:      L2-DIST-1 (C9404R, 172.31.0.193, admin/CXlabs.123)
+- LEGACY:      L2-DIST-2 (C9404R, 172.31.0.180, admin/CXlabs.123)
+
+PORT-CHANNEL DETAILS (FAILURE TARGET):
+- Channel Group: 40
+- Protocol: LACP
+- Layer: 3 (Routed)
+- IP: 192.168.40.0/31 (L2H-1) / 192.168.40.1/31 (BC1)
+- Members (L2H-1 side): Te4/0/1, Te4/0/2  <<<< BOTH WILL BE SHUT DOWN
+- Members (BC1 side):   Fif1/0/13, Fif1/0/14
+- Bandwidth: 20 Gbps aggregate (2x 10G)
+- Description: "connectivity to FC2_9606R_BC1"
+
+SPIRENT TRAFFIC:
+- 440+ streams total (172 through L2 handoff via Po40)
+- Baseline: 0.000% packet loss required before failure
+- L2 Handoff streams: BMS (VLAN 101), EUT (VLAN 1301)
+- Convergence tool: Spirent PLA (http://spirent-pla.cisco.com)
+- EXPECTED: Packet loss during Po40 down, then restoration
+
+================================================================================
+PROCEDURE
+================================================================================
+
+PHASE 1: STEADY STATE BASELINE
+-------------------------------
+1.1  Spirent: Verify 0.000% packet loss on all streams. Screenshot.
+1.2  Catalyst Center: L2H-1 health >= 80%, Reachable. Screenshot.
+1.3  CLI on L2H-1:
+       show etherchannel 40 summary
+       show etherchannel 40 detail
+       show interfaces Port-channel40
+       show interfaces Te4/0/1
+       show interfaces Te4/0/2
+       show lacp 40 counters
+       show lacp 40 neighbor
+       show lisp session
+       show ip route summary
+       show ip ospf neighbor
+       show logging | tail 30
+     Verify: Po40 UP, both members P (bundled), 2 LISP sessions UP.
+1.4  CLI on FS2_BC1:
+       show etherchannel 40 summary
+       show interfaces Port-channel40
+       show ip bgp summary
+       show lisp session
+     Verify: Po40 UP, both members bundled, BGP peers established.
+1.5  Screenshot: CC Assurance > Health (Network, Client).
+
+PHASE 2: FAILURE EVENT (Shutdown ENTIRE Port-Channel)
+------------------------------------------------------
+2.1  On FS2_L2H-1, shutdown BOTH member links:
+       conf t
+       interface range TenGigabitEthernet4/0/1 - 2
+       shutdown
+       end
+
+     Record timestamp of shutdown.
+
+2.2  IMMEDIATELY verify Po40 status:
+       show etherchannel 40 summary
+     EXPECTED: Po40 DOWN (no bundled members)
+     EXPECTED: Te4/0/1(D) and Te4/0/2(D) or removed from bundle
+
+2.3  Spirent monitoring (continuously for 5 minutes):
+     EXPECTED: Packet loss WILL OCCUR during convergence
+     EXPECTED: Dead flows during failure window
+     ACTION:
+       a. STOP traffic after 2-3 minutes
+       b. Export Spirent DB (.tcc)
+       c. Upload to PLA: http://spirent-pla.cisco.com
+       d. Download PLA Excel with convergence analysis
+       e. Record MAX/MIN/AVG convergence times per stream
+
+2.4  CLI on L2H-1 (within 60 seconds):
+       show logging | tail 30
+       show interfaces Port-channel40 | include line protocol
+       show lacp 40 counters
+       show lisp session
+       show ip ospf neighbor
+       show ip route summary
+     Verify: Po40 DOWN, LISP sessions to BC1 DOWN, OSPF adjacency to BC1 DOWN
+
+2.5  CLI on FS2_BC1:
+       show etherchannel 40 summary
+       show interfaces Port-channel40 | include line protocol
+       show logging | tail 30
+       show ip ospf neighbor | include 192.168.102.40
+       show lisp session | include 192.168.102.40
+     Verify: BC1 Po40 DOWN, OSPF adjacency to L2H-1 DOWN
+
+2.6  Catalyst Center: L2H-1 status (expected degraded or unreachable)
+     Screenshot at T+2:00.
+
+CONVERGENCE MEASUREMENT:
+- Dead flows EXPECTED during Po40 down
+- Traffic may failover to BC2 or drop completely
+- PLA analysis required: MAX/MIN/AVG convergence per stream
+- Record flows with drops vs. dead flows
+
+PHASE 3: RECOVERY (Restore ENTIRE Port-Channel)
+------------------------------------------------
+3.1  On FS2_L2H-1, restore BOTH member links:
+       conf t
+       interface range TenGigabitEthernet4/0/1 - 2
+       no shutdown
+       end
+
+     Record timestamp of restoration.
+
+3.2  Verify Po40 bundle restoration:
+       show etherchannel 40 summary
+     EXPECTED: Po40 UP with Te4/0/1(P) and Te4/0/2(P)
+     Monitor every 5 seconds until both members bundled
+     Record rebundle time (typically 10-30 seconds)
+
+3.3  Verify OSPF adjacency restoration:
+       show ip ospf neighbor
+     EXPECTED: FULL state to BC1 (192.168.40.1)
+     Record OSPF convergence time
+
+3.4  Verify LISP sessions restoration:
+       show lisp session
+     EXPECTED: Both sessions to BC1 and BC2 UP
+     Record LISP session reestablishment time
+
+3.5  Spirent: Restart traffic (if stopped), clear counters, wait 60s
+     Verify 0.000% on all streams. Screenshot.
+
+3.6  Full CLI validation on L2H-1:
+       show etherchannel 40 detail
+       show interfaces Port-channel40
+       show interfaces Te4/0/1
+       show interfaces Te4/0/2
+       show lacp 40 counters
+       show lisp session
+       show ip route summary
+       show ip ospf neighbor
+       show logging | tail 30
+     Compare ALL values to Phase 1 baseline.
+
+3.7  CLI on FS2_BC1:
+       show etherchannel 40 summary
+       show interfaces Port-channel40
+       show ip ospf neighbor
+       show lisp session
+     Verify: Both members bundled, OSPF FULL, LISP sessions UP
+
+3.8  Catalyst Center: L2H-1 health restored >= 80%. Screenshot.
+3.9  CC Assurance > Health: Network health >= 80%. Screenshot.
+
+ITERATIONS: Repeat Phases 1-3 three times (Iter1, Iter2, Iter3).
+
+================================================================================
+PASS/FAIL CRITERIA
+================================================================================
+
+PASS:
+  [x] Port-Channel 40 goes DOWN when both members shut (EXPECTED)
+  [x] OSPF adjacency to BC1 goes DOWN (EXPECTED)
+  [x] LISP session to BC1 goes DOWN (EXPECTED)
+  [x] Convergence measured via Spirent PLA (MAX/MIN/AVG times)
+  [x] Dead flows detected during failure (EXPECTED)
+  [x] Po40 fully restores after no shutdown (both members bundle)
+  [x] OSPF adjacency restores to FULL
+  [x] LISP sessions restore to Established
+  [x] Spirent shows 0.000% after recovery
+  [x] All metrics fully restored to Phase 1 baseline after recovery
+  [x] Results consistent across 3 iterations (+/- 20%)
+
+FAIL:
+  [ ] Po40 stays UP after shutting both members (UNEXPECTED)
+  [ ] Po40 fails to come UP after no shutdown
+  [ ] LACP rebundle fails (members stuck in suspended/down)
+  [ ] OSPF fails to restore to FULL
+  [ ] LISP sessions fail to reestablish
+  [ ] Permanent dead flows after recovery
+  [ ] Traffic does not restore to 0.000% after recovery
+  [ ] Metrics do not restore to baseline
+  [ ] Iteration variance > 20%
+
+================================================================================
+RESULT
+================================================================================
+
+Overall Result: _____________ (PASS / CONDITIONAL PASS / FAIL)
+
+Iteration 1:
+  Phase 1 (Baseline): _____ Phase 2 (Failure): _____ Phase 3 (Recovery): _____
+  Convergence Time: _____ sec  Dead Flows: _____  Max Loss: _____%
+
+Iteration 2:
+  Phase 1 (Baseline): _____ Phase 2 (Failure): _____ Phase 3 (Recovery): _____
+  Convergence Time: _____ sec  Dead Flows: _____  Max Loss: _____%
+
+Iteration 3:
+  Phase 1 (Baseline): _____ Phase 2 (Failure): _____ Phase 3 (Recovery): _____
+  Convergence Time: _____ sec  Dead Flows: _____  Max Loss: _____%
+
+Consistency Check:
+  All 3 iterations within +/- 20%: [ ] YES  [ ] NO
+  All 3 iterations PASS: [ ] YES  [ ] NO
+
+Convergence Summary:
+  Average Convergence Time: _____ sec
+  Average Dead Flows: _____
+  MAX/MIN/AVG across all streams: documented in PLA Excel
+
+Notes:
+________________________________________________________________________
+________________________________________________________________________
+
+Completed by: _________________ Date: __________ Time: __________
+
+================================================================================
+TECHNICAL NOTES
+================================================================================
+
+1. COMPLETE PORT-CHANNEL FAILURE: When ALL members of a Port-Channel are
+   shut down, the Port-Channel interface goes to "down/down" state. This
+   is a protocol-level down, not just a physical link down. All routing
+   protocols running over the Po (OSPF, BGP, etc.) will detect the failure
+   and tear down adjacencies.
+
+2. OSPF BEHAVIOR: OSPF dead timer (default 40s for point-to-point, but may
+   be tuned lower) triggers adjacency down when Po40 goes down. SPF
+   recalculation occurs, and routes via Po40 are withdrawn from the RIB.
+
+3. LISP SESSION BEHAVIOR: LISP sessions from L2H-1 to BC1 (192.168.100.1)
+   use Po40 as the physical path. When Po40 goes down, TCP 4342 sessions
+   time out. Session to BC2 (192.168.100.2) may remain UP if alternate
+   path exists.
+
+4. L2 HANDOFF TRAFFIC IMPACT: 172 Spirent streams through L2 handoff will
+   experience packet loss during the convergence window. Dead flows are
+   expected until routing reconverges or traffic fails over to BC2.
+
+5. BANDWIDTH IMPACT: Unlike TC 07-01 (one member down, Po stays up with
+   reduced BW), TC 07-02 causes complete path failure. No gradual
+   degradation - binary UP/DOWN transition.
+
+6. CONVERGENCE TIME: Typical convergence for complete Po failure:
+   - LACP detection: immediate (no member bundled)
+   - OSPF dead timer: 10-40 seconds (default 40s, may be BFD-enhanced)
+   - LISP session timeout: TCP keepalive dependent (~75-90s if not BFD)
+   - Traffic reconvergence: dependent on alternate path availability
+
+7. RECOVERY TIME: Typical recovery after "no shutdown":
+   - Physical link up: 1-2 seconds (optics negotiation)
+   - LACP bundle formation: 5-15 seconds (3x fast LACP intervals)
+   - OSPF adjacency: 10-15 seconds (Hello + ExStart/Exchange/Loading/Full)
+   - LISP session reestablishment: 5-10 seconds (TCP 3-way handshake + LISP)
+   - Total recovery: 20-40 seconds typical
+
+8. FS2_BC2 ALTERNATE PATH: Depending on routing (OSPF costs, BFD), traffic
+   may failover to BC2 during BC1 Po40 failure. This failover may not be
+   hitless but should complete within the convergence window.
+
+================================================================================
+DELIVERABLES
+================================================================================
+
+Per Iteration (x3):
+
+CLI Outputs (6 files per iteration):
+  [ ] Iter{n}_Pre_L2H1_Baseline.txt
+  [ ] Iter{n}_Pre_BC1_Baseline.txt
+  [ ] Iter{n}_During_L2H1_Failure.txt
+  [ ] Iter{n}_During_BC1_Status.txt
+  [ ] Iter{n}_Post_L2H1_Validation.txt
+  [ ] Iter{n}_Post_BC1_Validation.txt
+
+Screenshots (8 per iteration):
+  Phase 1:
+    [ ] Iter{n}_Pre_Spirent_Baseline.png
+    [ ] Iter{n}_Pre_CC_L2H1_Health.png
+    [ ] Iter{n}_Pre_CC_Network_Health.png
+  Phase 2:
+    [ ] Iter{n}_During_Spirent_Convergence.png
+    [ ] Iter{n}_During_CC_L2H1_Status.png
+  Phase 3:
+    [ ] Iter{n}_Post_Spirent_Restored.png
+    [ ] Iter{n}_Post_CC_L2H1_Health.png
+    [ ] Iter{n}_Post_CC_Network_Health.png
+
+Spirent Convergence Analysis (MANDATORY for this test):
+  [ ] Iter{n}_During_Spirent_DB.tcc
+  [ ] Iter{n}_PLA_Convergence_Analysis.xlsx
+  [ ] Iter{n}_PLA_Screenshots.png
+
+Summary:
+  [ ] TC-07-02_Test_Case_Report.docx
+  [ ] TC-07-02_CXTM.txt (this file)
+  [ ] TC-07-02_Convergence_Summary.xlsx (3 iterations comparison)
+
+Total Evidence: ~18 CLI files + ~24 screenshots + 3 PLA Excel + report
+
+================================================================================
+END OF TC 07-02
+================================================================================

@@ -1,0 +1,357 @@
+================================================================================
+TC 07-02: Link Failure from L2 Border Port-Channel to Fabric BC Node
+START HERE - Quick Guide
+================================================================================
+
+📁 WHAT'S IN THIS FOLDER
+=========================
+
+✅ Created: April 6, 2026
+✅ Status: Ready for execution
+✅ Test Type: Negative testing - Complete Port-Channel failure
+✅ Total Documentation: 2,290 lines
+
+FILES CREATED:
+-------------
+
+1. 📋 TC-07-02_CXTM.txt (339 lines)
+   - Complete test case description
+   - CXTM format, ready for CXTM tool import
+   - Topology, procedure, pass/fail criteria
+
+2. 📋 TC-07-02_Execution_Plan.txt (681 lines)
+   - Copy/paste execution guide
+   - Step-by-step manual instructions
+   - Perfect for manual execution or troubleshooting
+
+3. 🐍 run_tc_07-02.py (520 lines)
+   - Python automation script (executable)
+   - Requires: netmiko library (pip install netmiko)
+   - Interactive: pauses for GUI screenshots
+   - Usage: python3 run_tc_07-02.py --iter [1|2|3]
+
+4. 📖 README.md (385 lines)
+   - Comprehensive overview
+   - Prerequisites, usage, troubleshooting
+   - Expected results, rollback procedures
+
+5. 📊 TC-07-01_vs_TC-07-02_Comparison.txt (365 lines)
+   - Side-by-side comparison with TC 07-01
+   - Technical differences explained
+   - When to use which test
+
+6. 📄 00_START_HERE.txt (this file)
+   - Quick start guide
+
+
+📊 WHAT THIS TEST DOES
+=======================
+
+TEST OBJECTIVE:
+Validate SDA fabric resilience when the ENTIRE Port-Channel between
+L2 Border (FS2_L2H-1) and Border Controller (FS2_BC1) fails.
+
+KEY DIFFERENCE FROM TC 07-01:
+- TC 07-01: Shutdown ONE member → Po40 stays UP (hitless)
+- TC 07-02: Shutdown BOTH members → Po40 goes DOWN (traffic loss)
+
+EXPECTED BEHAVIOR:
+✅ Po40 goes DOWN (protocol down) - EXPECTED
+✅ OSPF adjacency to BC1 goes DOWN - EXPECTED
+✅ LISP session to BC1 goes DOWN - EXPECTED
+✅ Packet loss during convergence (3-10 seconds) - EXPECTED
+✅ Dead flows detected - EXPECTED
+✅ Full recovery after restoration - REQUIRED
+✅ Convergence times measured via Spirent PLA - REQUIRED
+
+
+🚀 QUICK START (3 STEPS)
+=========================
+
+STEP 1: Install Prerequisites
+------------------------------
+pip install netmiko
+
+STEP 2: Verify Lab Access
+--------------------------
+- VPN connected
+- SSH access: FS2_L2H-1 (172.31.0.194), FS2_BC1 (172.31.2.0)
+- Spirent GUI: 172.31.0.101
+- Catalyst Center: https://172.31.229.151
+- Spirent PLA account: http://spirent-pla.cisco.com
+
+STEP 3: Run Test (Automated)
+-----------------------------
+cd "/Users/wbenbark/MS_SVS_SDA_Phase2/Test Case Logs/07-02_Link_Failure_From_L2_Border_PortChannel_to_Fabric_BC_Node"
+
+# Run Iteration 1
+python3 run_tc_07-02.py --iter 1
+
+# Run Iteration 2 (after completing Iteration 1)
+python3 run_tc_07-02.py --iter 2
+
+# Run Iteration 3 (after completing Iteration 2)
+python3 run_tc_07-02.py --iter 3
+
+
+📋 TEST PHASES
+==============
+
+PHASE 1: BASELINE (5-10 minutes)
+--------------------------------
+- Verify Spirent 0.000% loss (GATE)
+- Catalyst Center health check
+- Collect CLI from L2H-1 and BC1
+- 3 screenshots (Spirent, CC health, CC network health)
+
+PHASE 2: FAILURE (10-15 minutes)
+---------------------------------
+- Shutdown BOTH Te4/0/1 AND Te4/0/2 on L2H-1
+- Po40 goes DOWN (expected)
+- Monitor Spirent convergence (3 minutes)
+- STOP traffic, export .tcc DB
+- Upload to Spirent PLA for analysis
+- Download PLA Excel with convergence data
+- Collect CLI during failure
+- 3 screenshots + PLA analysis
+
+PHASE 3: RECOVERY (10-15 minutes)
+----------------------------------
+- Restore both members (no shutdown)
+- Monitor Po40 rebundle (10-30 sec)
+- Monitor OSPF convergence (15-30 sec)
+- Monitor LISP session restore (10-30 sec)
+- Restart Spirent, verify 0.000%
+- Collect CLI post-recovery
+- 3 screenshots
+
+TOTAL TIME PER ITERATION: 25-40 minutes
+TOTAL TIME (3 iterations): 75-120 minutes (1.5-2 hours)
+
+
+⚠️  CRITICAL WARNINGS
+====================
+
+1. ⚠️  TRAFFIC LOSS EXPECTED
+   Unlike TC 07-01 (hitless), this test WILL cause packet loss.
+   Coordinate with stakeholders before running in production-like environments.
+
+2. ⚠️  SPIRENT PLA MANDATORY
+   You MUST upload Spirent DB to PLA and download convergence Excel.
+   This is not optional - convergence measurement is the goal of this test.
+
+3. ⚠️  DO NOT RUN IF TC 07-01 FAILED
+   If TC 07-01 (single member) was not hitless, fix that first.
+   Do not proceed to complete Po failure until graceful degradation works.
+
+4. ⚠️  BOTH MEMBERS SHUT DOWN
+   Command: interface range TenGigabitEthernet4/0/1 - 2
+   This is intentional - testing complete failure scenario.
+
+5. ⚠️  COMPLETE 3 ITERATIONS
+   Results must be consistent (+/- 20%) across all 3 iterations.
+   Do not skip iterations.
+
+
+✅ SUCCESS CRITERIA
+===================
+
+PASS IF:
+[ ] Po40 goes DOWN when both members shut (EXPECTED)
+[ ] OSPF adjacency goes DOWN (EXPECTED)
+[ ] LISP session to BC1 goes DOWN (EXPECTED)
+[ ] Convergence measured (PLA Excel downloaded)
+[ ] Dead flows counted
+[ ] Po40 fully restores after no shutdown
+[ ] OSPF restores to FULL
+[ ] LISP sessions reestablish
+[ ] Spirent shows 0.000% after recovery
+[ ] All baseline metrics restored
+[ ] Results consistent across 3 iterations (+/- 20%)
+
+FAIL IF:
+[ ] Po40 stays UP after shutting both members (UNEXPECTED)
+[ ] Po40 fails to restore after no shutdown
+[ ] LACP rebundle fails
+[ ] OSPF fails to converge
+[ ] LISP sessions fail to reestablish
+[ ] Permanent dead flows after recovery
+[ ] Metrics do not restore to baseline
+[ ] Iteration variance > 20%
+
+
+📁 EVIDENCE COLLECTION (AUTOMATED)
+==================================
+
+After each iteration, the script creates:
+
+Iter{n}_CLI/ (6 files):
+- Iter{n}_Pre_L2H1_Baseline.txt
+- Iter{n}_Pre_BC1_Baseline.txt
+- Iter{n}_During_L2H1_Failure.txt
+- Iter{n}_During_BC1_Status.txt
+- Iter{n}_Post_L2H1_Validation.txt
+- Iter{n}_Post_BC1_Validation.txt
+
+Manual screenshots (8 per iteration):
+- Iter{n}_Pre_Spirent_Baseline.png
+- Iter{n}_Pre_CC_L2H1_Health.png
+- Iter{n}_Pre_CC_Network_Health.png
+- Iter{n}_During_Spirent_Convergence.png
+- Iter{n}_During_CC_L2H1_Status.png
+- Iter{n}_Post_Spirent_Restored.png
+- Iter{n}_Post_CC_L2H1_Health.png
+- Iter{n}_Post_CC_Network_Health.png
+
+Spirent convergence (3 files per iteration):
+- Iter{n}_During_Spirent_DB.tcc
+- Iter{n}_PLA_Convergence_Analysis.xlsx
+- Iter{n}_PLA_Analysis.png
+
+
+🔧 TROUBLESHOOTING
+==================
+
+Problem: Script fails with "No module named 'netmiko'"
+Solution: pip install netmiko
+
+Problem: Cannot SSH to devices
+Solution: Verify VPN connected, check IP addresses in ssh.morgan.stanley.svs.sda.csv
+
+Problem: Po40 fails to rebundle after recovery
+Solution: Check "show lacp 40 counters" and "show lacp 40 neighbor"
+          Verify physical links: "show interfaces Te4/0/1" and "Te4/0/2"
+          Check BC1 side: ssh admin1@172.31.2.0, "show etherchannel 40 summary"
+
+Problem: OSPF doesn't converge
+Solution: Check "show ip ospf neighbor detail"
+          Verify Po40 is UP: "show interfaces Po40"
+          Check for authentication issues: "show logging | include OSPF"
+
+Problem: LISP sessions don't restore
+Solution: Check "show lisp session" and "show lisp session verbose"
+          Verify routing: "show ip route 192.168.100.1"
+          Ping BC1/BC2: "ping 192.168.100.1 source lo0"
+
+Problem: Spirent traffic doesn't restore
+Solution: Wait 60 seconds after full convergence
+          Check routing: "show ip route summary"
+          Check CTS: "show cts role-based counters" (look for denies)
+          Verify VXLAN: "show lisp instance-id * ethernet server"
+
+
+🆘 ROLLBACK (EMERGENCY)
+=======================
+
+If test must be aborted at any point:
+
+On FS2_L2H-1:
+-------------
+conf t
+interface range TenGigabitEthernet4/0/1 - 2
+no shutdown
+end
+
+Wait 30 seconds, then verify:
+show etherchannel 40 summary
+  → Po40 should be UP with both members
+
+Wait for OSPF (40 seconds):
+show ip ospf neighbor
+  → Should show FULL to BC1 (192.168.40.1)
+
+Wait for LISP (30 seconds):
+show lisp session
+  → Both sessions to BC1 and BC2 should be UP
+
+
+📞 SUPPORT
+==========
+
+Lab Issues: Contact SVS lab support
+Test Questions: Refer to README.md or TC-07-02_Execution_Plan.txt
+Script Issues: Check syntax with "python3 -m py_compile run_tc_07-02.py"
+Cisco TAC: Only if defects found (record case number in CXTM)
+
+
+📚 RELATED DOCUMENTS
+====================
+
+In this folder:
+- TC-07-02_CXTM.txt - Full test case description
+- TC-07-02_Execution_Plan.txt - Manual execution guide
+- README.md - Comprehensive documentation
+- TC-07-01_vs_TC-07-02_Comparison.txt - Comparison with TC 07-01
+
+In TC 07-01 folder:
+- run_tc_07-01.py - Similar test (single member failure)
+- TC-07-01_CXTM.txt - TC 07-01 description
+
+Project documentation:
+- /Users/wbenbark/MS_SVS_SDA_Phase2/Claude_Context/Combined_Testbed_Context.md
+- /Users/wbenbark/MS_SVS_SDA_Phase2/Device_Access/ssh.morgan.stanley.svs.sda.csv
+
+
+🎯 EXPECTED CONVERGENCE TIMES
+==============================
+
+Based on similar tests and industry best practices:
+
+| Metric                   | Expected Range  | Notes                    |
+|--------------------------|-----------------|--------------------------|
+| Po40 Down Detection      | Immediate       | LACP detects no members  |
+| OSPF Adjacency Down      | 1-10 seconds    | Dead timer or BFD        |
+| Packet Loss Duration     | 3-10 seconds    | Until reconvergence      |
+| Dead Flows               | 50-200          | Depends on traffic       |
+| LACP Rebundle Time       | 10-30 seconds   | After no shutdown        |
+| OSPF Convergence to FULL | 15-30 seconds   | Hello + adjacency form   |
+| LISP Session Restore     | 10-30 seconds   | TCP 3-way handshake      |
+| Total Recovery Time      | 30-60 seconds   | All protocols converged  |
+
+If your results are significantly outside these ranges, investigate:
+- LACP timers (slow vs. fast)
+- OSPF timers (Hello, Dead)
+- BFD configuration (may speed up detection)
+- Network load (high load may slow convergence)
+- Hardware performance (ASIC, CPU)
+
+
+🏁 FINAL DELIVERABLES
+=====================
+
+After completing all 3 iterations, you should have:
+
+CLI Evidence:
+- 18 CLI files (6 per iteration × 3)
+
+Screenshots:
+- 24 screenshots (8 per iteration × 3)
+
+Spirent Analysis:
+- 3 .tcc files (Spirent DB exports)
+- 3 PLA Excel reports (convergence analysis)
+- 3 PLA screenshots
+
+Create final report:
+- Word document with all evidence embedded
+- Convergence summary Excel (3 iterations comparison)
+- CXTM results file (copy TC-07-02_CXTM.txt and fill in results)
+
+Total evidence: ~50 files
+
+
+✨ YOU'RE READY!
+================
+
+This test case is fully prepared and ready to execute.
+
+Choose your approach:
+1. Automated: python3 run_tc_07-02.py --iter 1
+2. Manual: Follow TC-07-02_Execution_Plan.txt
+3. Review: Read README.md for full documentation
+
+Good luck with your testing! 🚀
+
+================================================================================
+END OF START HERE
+================================================================================
