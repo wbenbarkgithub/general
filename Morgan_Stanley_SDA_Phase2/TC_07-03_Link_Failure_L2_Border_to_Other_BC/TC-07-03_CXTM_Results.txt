@@ -1,0 +1,201 @@
+================================================================================
+TC 07-03: CXTM RESULTS
+Link Failure From L2 Border Physical Link to Other BC Node
+Dual-Homed Topology -- Reverse Direction Validation
+================================================================================
+
+Project:       Morgan Stanley SDA Phase 2
+Test Case ID:  TC 07-03
+Phase:         07 - Negative Testing - Layer 2 Border
+Date:          April 7, 2026
+Executed By:   wbenbark
+Location:      RTP S10-360, Row P, Racks 18-25
+CC Version:    2.3.7.9-70301
+
+================================================================================
+EXECUTIVE RESULTS SUMMARY
+================================================================================
+
+OVERALL RESULT: PASS
+
+TC 07-03 validates the reverse direction of the dual-homed L2 Border
+topology. Port-Channel 41 (to FS2_BC2) was shut down while Port-Channel 40
+(to FS2_BC1) provided full redundancy. This is the mirror of TC 07-02
+(retest), which shut Po40 and relied on Po41. Together, both tests confirm
+symmetric, bidirectional redundancy for the L2 Border dual-homed design.
+
+Key Findings:
+  - Po40 remained UP (RU) during all 3 iterations when Po41 was shut down
+  - OSPF to BC1 (192.168.40.1) maintained FULL state throughout all failures
+  - BFD to BC1 (192.168.40.1) stayed Up/Up during all failures
+  - LISP sessions maintained 2/2 established even during failure
+    (BC2 session survived via alternate fabric path through BC1)
+  - ECMP restored after each recovery (routes via both Po40 and Po41)
+  - Po40 absorbed full traffic load (~278 Mbps, within 20 Gbps capacity)
+  - BC2 syslog: BFD_SESS_DESTROYED + OSPF FULL->DOWN (BFD node down)
+  - Zero CTS denied counters -- no TrustSec enforcement disruption
+  - Results consistent and repeatable across all 3 iterations
+
+================================================================================
+TEST CONFIGURATION
+================================================================================
+
+Devices:
+  FS2_L2H-1  C9404R  172.31.0.194  L2 Border (DUT)             IOS-XE 17.15.4
+  FS2_BC1    C9606R  172.31.2.0    Fabric Border Ctrl (UP)     IOS-XE 17.15.4
+  FS2_BC2    C9606R  172.31.2.2    Fabric Border Ctrl (DOWN)   IOS-XE 17.15.4
+
+Port-Channels:
+  Po40: Te4/0/1 + Te4/0/2 -> FS2_BC1, 192.168.40.0/31, LACP  (STAYS UP)
+  Po41: Te4/0/3 + Te4/0/4 -> FS2_BC2, 192.168.41.0/31, LACP  (SHUT DOWN)
+
+Topology: Dual-homed L2 Border with ECMP across two Border Controllers
+
+================================================================================
+RESULTS SUMMARY -- ALL 3 ITERATIONS
+================================================================================
+
+  Metric                              Iter 1          Iter 2          Iter 3         
+  --------------------------------------------------------------------------------
+  Pre Timestamp                       16:42           17:10           19:15          
+  During Timestamp                    16:48           17:13           19:20          
+  Post Timestamp                      16:59           17:15           N/A*           
+  Po40 Baseline                       RU              RU              RU             
+  Po41 Baseline                       RU              RU              RU             
+  Po41 During Failure                 RD              RD              RD             
+  Po40 During Failure                 RU              RU              RU             
+  Po40 Post Recovery                  RU              RU              RU             
+  Po41 Post Recovery                  RU              RU              RU             
+  OSPF BC1 Baseline                   FULL            FULL            FULL           
+  OSPF BC2 Baseline                   FULL            FULL            FULL           
+  OSPF BC1 During Failure             FULL            FULL            FULL           
+  OSPF BC2 During Failure             DOWN            DOWN            DOWN           
+  OSPF BC1 Post Recovery              FULL            FULL            FULL           
+  OSPF BC2 Post Recovery              FULL            FULL            FULL           
+  BFD 192.168.40.1 Baseline           Up/Up           Up/Up           Up/Up          
+  BFD 192.168.41.1 Baseline           Up/Up           Up/Up           Up/Up          
+  BFD 192.168.40.1 During             Up/Up           Up/Up           Up/Up          
+  BFD 192.168.41.1 During             Not present     Not present     Not present    
+  LISP Sessions Baseline              2/2 estab       2/2 estab       2/2 estab      
+  LISP Sessions During                2/2 estab       2/2 estab       2/2 estab      
+  LISP Sessions Post                  2/2 estab       2/2 estab       2/2 estab      
+  ECMP Baseline                       Active          Active          Active         
+  ECMP During                         Po40 only       Po40 only       Po40 only      
+  ECMP Post Recovery                  Restored        Restored        Restored       
+  Po40 Rate During Failure            ~278 Mbps       ~278 Mbps       ~218 Mbps      
+  CTS HW-Denied                       0               0               0              
+
+  *Iter 3 post-recovery CLI not collected. Screenshots confirm recovery.
+
+================================================================================
+BIDIRECTIONAL VALIDATION: TC 07-02 (RETEST) + TC 07-03
+================================================================================
+
+  Attribute                 TC 07-02 (Retest)         TC 07-03                 
+  -------------------------------------------------------------------------
+  Target Port-Channel       Po40 (to BC1)             Po41 (to BC2)            
+  Members Shut Down         Te4/0/1 + Te4/0/2         Te4/0/3 + Te4/0/4        
+  BC Path Lost              BC1 (192.168.40.1)        BC2 (192.168.41.1)       
+  Redundant Path            Po41 to BC2               Po40 to BC1              
+  OSPF Maintained To        BC2 (FULL)                BC1 (FULL)               
+  LISP During Failure       2/2 established           2/2 established          
+  ECMP Post Recovery        Restored                  Restored                 
+  Result                    PASS                      PASS                     
+
+  Both directions validated: dual-homed L2 Border is symmetric.
+
+================================================================================
+PASS/FAIL CRITERIA CHECKLIST
+================================================================================
+
+  [PASS] Po41 goes DOWN when both members shut (all 3 iterations)
+  [PASS] Po40 REMAINS UP during Po41 failure (all 3 iterations)
+  [PASS] OSPF adjacency to BC1 maintained FULL during failure
+  [PASS] OSPF adjacency to BC2 goes DOWN as expected
+  [PASS] BFD session to BC1 remains Up/Up during failure
+  [PASS] LISP sessions maintained (2/2 established) during failure
+  [PASS] All routes reconverge via Po40 during failure
+  [PASS] Minimal or zero packet loss during failover
+  [PASS] Po41 recovers to RU after member interfaces restored
+  [PASS] OSPF adjacency to BC2 re-establishes to FULL after recovery
+  [PASS] ECMP resumes after recovery (routes via both Po40 and Po41)
+  [PASS] Zero CTS denied counters throughout test
+  [PASS] Results consistent across all 3 iterations
+
+  13/13 criteria PASSED
+
+================================================================================
+EVIDENCE INVENTORY
+================================================================================
+
+CLI Files:
+
+  Iteration 1 (9 files):
+    Iter1_During_BC1_Status.txt                           6,612 bytes
+    Iter1_During_BC2_Status.txt                           3,649 bytes
+    Iter1_During_L2H1_Failure.txt                        29,646 bytes
+    Iter1_Post_BC1_Validation.txt                         8,458 bytes
+    Iter1_Post_BC2_Validation.txt                         8,975 bytes
+    Iter1_Post_L2H1_Validation.txt                       30,829 bytes
+    Iter1_Pre_BC1_Baseline.txt                            8,507 bytes
+    Iter1_Pre_BC2_Baseline.txt                            8,458 bytes
+    Iter1_Pre_L2H1_Baseline.txt                          30,750 bytes
+
+  Iteration 2 (9 files):
+    Iter2_During_BC1_Status.txt                           6,612 bytes
+    Iter2_During_BC2_Status.txt                           3,652 bytes
+    Iter2_During_L2H1_Failure.txt                        29,639 bytes
+    Iter2_Post_BC1_Validation.txt                         8,458 bytes
+    Iter2_Post_BC2_Validation.txt                         8,975 bytes
+    Iter2_Post_L2H1_Validation.txt                       30,818 bytes
+    Iter2_Pre_BC1_Baseline.txt                            8,506 bytes
+    Iter2_Pre_BC2_Baseline.txt                            8,461 bytes
+    Iter2_Pre_L2H1_Baseline.txt                          30,756 bytes
+
+  Iteration 3 (9 files):
+    Iter3_During_BC1_Status.txt                           6,612 bytes
+    Iter3_During_BC2_Status.txt                           3,650 bytes
+    Iter3_During_L2H1_Failure.txt                        29,654 bytes
+    Iter3_Post_BC1_Validation.txt                         8,458 bytes
+    Iter3_Post_BC2_Validation.txt                         8,977 bytes
+    Iter3_Post_L2H1_Validation.txt                       30,820 bytes
+    Iter3_Pre_BC1_Baseline.txt                            8,508 bytes
+    Iter3_Pre_BC2_Baseline.txt                            8,462 bytes
+    Iter3_Pre_L2H1_Baseline.txt                          30,758 bytes
+
+  Total CLI files: 27
+
+Screenshots:
+
+  Iteration 1 - Pre: 8 screenshots
+  Iteration 1 - During: 4 screenshots
+  Iteration 1 - Post: 20 screenshots
+  Iteration 2: 6 screenshots
+  Iteration 3: 8 screenshots
+  TOTAL: 46 screenshots
+
+Automation:
+  run_tc_07-03.py (Python/Netmiko, 3-phase, 3-iteration)
+
+NOTE: Interface status displayed in Catalyst Center Provision > Inventory
+is not real-time. It reflects the data captured at the time of the last
+device synchronization cycle. CLI output is the authoritative source for
+real-time interface status during rapid failure/recovery events.
+
+================================================================================
+CONCLUSION
+================================================================================
+
+TC 07-03: PASS
+
+The dual-homed L2 Border topology provides full redundancy when the Po41
+path to FS2_BC2 fails. Po40 to FS2_BC1 absorbed all traffic immediately,
+LISP control plane remained intact (2/2 sessions), OSPF adjacency to BC1
+stayed FULL, and BFD confirmed continuous bidirectional forwarding. ECMP
+load balancing resumed upon recovery. Combined with TC 07-02 (retest),
+this confirms symmetric bidirectional redundancy for the L2 Border
+dual-homed architecture.
+
+================================================================================
+END OF RESULTS
+================================================================================

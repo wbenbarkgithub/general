@@ -1,0 +1,568 @@
+================================================================================
+TC 07-03: Link Failure From L2 Border Physical Link to Other BC Node
+================================================================================
+
+Project:    Morgan Stanley SDA Phase 2
+Phase:      07 - Negative Testing - Layer 2 Border
+CXTM ID:    TBD
+Identifier: 07-03
+Suite:      05 - April-10 - Akshit
+Owner:      wbenbark
+Defects:    None
+Date:       April 2026
+
+================================================================================
+DESCRIPTION
+================================================================================
+
+Validate SDA fabric resilience when the ENTIRE LACP Port-Channel bundle
+between the L2 Border node (FS2_L2H-1) and the SECONDARY Fabric Border
+Controller (FS2_BC2) is shut down. This tests the complete failure of the
+secondary L2 handoff uplink path (Po41), with the primary path (Po40 to
+FS2_BC1) providing full redundancy.
+
+This is the MIRROR of TC 07-02 (retest), validating dual-homing in the
+OPPOSITE direction:
+  TC 07-02 retest: Shut Po40 (BC1 path), Po41 (BC2) provides redundancy
+  TC 07-03:        Shut Po41 (BC2 path), Po40 (BC1) provides redundancy
+
+Together, TC 07-02 and TC 07-03 prove that the L2 Border dual-homed
+topology can sustain full traffic when EITHER path independently fails.
+
+Port-Channel 41 uses LACP with two 10G member links. Shutting down BOTH
+members (Te4/0/3 and Te4/0/4) causes Po41 to go DOWN, which triggers:
+- OSPF adjacency to BC2 goes DOWN (expected)
+- BFD session to BC2 goes DOWN (expected, BFD node down)
+- LISP sessions remain UP (both sessions survive via Po40 path)
+- Traffic reconverges entirely to Po40 (to BC1) - minimal or zero loss
+- Catalyst Center continues to see L2H-1 as Reachable (via Po40)
+
+Expected impact: Minimal or zero packet loss due to dual-homed redundancy.
+Po40 immediately absorbs all traffic. ECMP routes withdraw Po41 paths and
+reconverge to Po40-only. Full restoration after recovery.
+
+================================================================================
+TOPOLOGY
+================================================================================
+
+                    FS2_L2H-1 (L2 Border)                FS2_BC1 (Border Controller)
+                    C9404R / 172.31.0.194                 C9606R / 172.31.2.0
+                    Loopback0: 192.168.102.40             Loopback0: 192.168.100.1
+
+                    Te4/0/1  ─────────────────────── Fif1/0/13
+                        \                                /
+                    Po40 (LACP, L3)                   Po40 (LACP, L3)
+                    192.168.40.0/31                   192.168.40.1/31
+                        /                                \
+                    Te4/0/2  ─────────────────────── Fif1/0/14
+                            REDUNDANT PATH (stays UP)
+
+
+                    FS2_L2H-1 (L2 Border)                FS2_BC2 (Border Controller)
+                    C9404R / 172.31.0.194                 C9606R / 172.31.2.2
+                    Loopback0: 192.168.102.40             Loopback0: 192.168.100.2
+
+                    Te4/0/3  ─────────────────────── Fif2/0/13  <<<< SHUTDOWN
+                        \                                /
+                    Po41 (LACP, L3)                   Po41 (LACP, L3)
+                    192.168.41.0/31                   192.168.41.1/31
+                        /                                \
+                    Te4/0/4  ─────────────────────── Fif2/0/14  <<<< SHUTDOWN
+
+                            BOTH MEMBERS SHUT DOWN
+                            Po41 goes DOWN (no bundled members)
+
+  L2H-1 also connects to:
+    Te4/0/20 ──── FS2_L2_DIST_1 (Legacy, C9404R, 172.31.0.193)
+    Te4/0/21 ──── L2-DIST-2      (Legacy, C9404R, 172.31.0.180)
+
+  L2H-1 LISP sessions (BOTH REMAIN UP during Po41 failure):
+    192.168.100.1:4342 (FS2_BC1) - Established (direct via Po40)
+    192.168.100.2:4342 (FS2_BC2) - Established (via Po40 -> fabric -> BC2)
+
+  L2 Handoff VLANs on L2H-1:
+    Vlan101  - 10.5.28.1  (BMS L2 handoff)
+    Vlan1301 - 10.5.20.1  (EUT)
+
+  LISP Instances:
+    L2LISP0.8188, L2LISP0.8190 (L2VNI - ethernet)
+    LISP0.4099, LISP0.4102, LISP0.4104, LISP0.4107 (L3VNI - ipv4)
+
+  Routing: OSPF process 1
+    Adjacency to BC2 (192.168.41.1) will GO DOWN
+    Adjacency to BC1 (192.168.40.1) REMAINS FULL
+  BFD:
+    Session to BC2 (192.168.41.1) will GO DOWN
+    Session to BC1 (192.168.40.1) REMAINS UP
+
+  Baseline traffic: ~193 Mbps per path (ECMP across Po40 + Po41)
+  During failure: ~278 Mbps on Po40 (absorbs all traffic)
+
+================================================================================
+SETUP
+================================================================================
+
+Morgan Stanley SDA Phase 2 Testbed - RTP S10-360, Row P, Racks 18-25
+
+ARCHITECTURE:
+- 4 Fabric Sites: FS1 (4 devices), FS2 (10 devices), DC1/FS4 (4), DC2/FS5 (4)
+- 3-Layer DMZ: Border Controllers -> EDMZ (VRF-aware) -> IDMZ (GRT)
+- 22 Catalyst Center managed devices (IOS-XE 17.15.4)
+- Catalyst Center 2.3.7.9-70301 (DC1 Active, DC2 Standby)
+- ISE 3.2-P7 (4 physical + 14 virtual PSNs)
+
+KEY DEVICES FOR THIS TEST:
+- PRIMARY DUT: FS2_L2H-1 (C9404R, 172.31.0.194, admin1/CXlabs.123)
+- STAYS UP:    FS2_BC1   (C9606R, 172.31.2.0,   admin1/CXlabs.123)
+- GOES DOWN:   FS2_BC2   (C9606R, 172.31.2.2,   admin1/CXlabs.123)
+- LEGACY:      L2-DIST-1 (C9404R, 172.31.0.193, admin/CXlabs.123)
+- LEGACY:      L2-DIST-2 (C9404R, 172.31.0.180, admin/CXlabs.123)
+
+PORT-CHANNEL 41 DETAILS (FAILURE TARGET):
+- Channel Group: 41
+- Protocol: LACP
+- Layer: 3 (Routed)
+- IP: 192.168.41.0/31 (L2H-1) / 192.168.41.1/31 (BC2)
+- Members (L2H-1 side): Te4/0/3, Te4/0/4  <<<< BOTH WILL BE SHUT DOWN
+- Members (BC2 side):   Fif2/0/13, Fif2/0/14
+- Bandwidth: 20 Gbps aggregate (2x 10G)
+- Description: "connectivity to FS2_BC2"
+
+PORT-CHANNEL 40 DETAILS (REDUNDANT PATH):
+- Channel Group: 40
+- Protocol: LACP
+- Layer: 3 (Routed)
+- IP: 192.168.40.0/31 (L2H-1) / 192.168.40.1/31 (BC1)
+- Members (L2H-1 side): Te4/0/1, Te4/0/2  <<<< REMAIN UP
+- Members (BC1 side):   Fif1/0/13, Fif1/0/14
+- Bandwidth: 20 Gbps aggregate (2x 10G)
+- Description: "connectivity to FC2_9606R_BC1"
+
+SPIRENT TRAFFIC:
+- 440+ streams total (172 through L2 handoff)
+- Baseline: 0.000% packet loss required before failure
+- L2 Handoff streams: BMS (VLAN 101), EUT (VLAN 1301)
+- Convergence tool: Spirent PLA (http://spirent-pla.cisco.com)
+- EXPECTED: Minimal or zero packet loss (dual-homed redundancy)
+
+================================================================================
+PROCEDURE
+================================================================================
+
+PHASE 1: STEADY STATE BASELINE
+-------------------------------
+1.0  Clear syslog buffers on all 3 devices (L2H-1, BC1, BC2) for clean
+     evidence collection.
+
+1.1  Spirent: Verify 0.000% packet loss on all streams. Screenshot.
+
+1.2  Catalyst Center:
+       - Provision > Inventory > FS2_L2H_1: Reachable, Health >= 80%
+       - Assurance > Health: Network Health, Client Health
+       Screenshots.
+
+1.3  CLI on FS2_L2H-1 (172.31.0.194):
+       show version | include uptime
+       show etherchannel summary
+       show etherchannel 40 summary
+       show etherchannel 41 summary
+       show interfaces Port-channel40
+       show interfaces Port-channel41
+       show interfaces Te4/0/1 through Te4/0/4
+       show lacp 40 neighbor
+       show lacp 41 neighbor
+       show ip ospf neighbor
+       show ip route ospf | include 192.168
+       show bfd neighbors
+       show lisp session
+       show ip route summary
+       show cts role-based counters
+     Verify:
+       Po40 UP (RU) with Te4/0/1(P) + Te4/0/2(P)
+       Po41 UP (RU) with Te4/0/3(P) + Te4/0/4(P)
+       OSPF FULL to BOTH BC1 (192.168.40.1) and BC2 (192.168.41.1)
+       BFD UP to both BCs
+       ECMP routes visible (equal cost via both Po40 and Po41)
+       2 LISP sessions established
+
+1.4  CLI on FS2_BC1 (172.31.2.0):
+       show version | include uptime
+       show etherchannel 40 summary
+       show interfaces Port-channel40
+       show lacp 40 counters
+       show ip ospf neighbor
+       show ip bgp summary
+       show lisp session
+       show bfd neighbors
+     Verify: Po40 UP, OSPF FULL to L2H-1, LISP session UP
+
+1.5  CLI on FS2_BC2 (172.31.2.2):
+       show version | include uptime
+       show etherchannel 41 summary
+       show interfaces Port-channel41
+       show lacp 41 counters
+       show ip ospf neighbor
+       show ip bgp summary
+       show lisp session
+       show bfd neighbors
+     Verify: Po41 UP, OSPF FULL to L2H-1, LISP session UP
+
+PHASE 2: FAILURE EVENT (Shutdown ENTIRE Port-Channel 41)
+---------------------------------------------------------
+2.1  On FS2_L2H-1, shutdown BOTH Po41 member links:
+       conf t
+       interface range TenGigabitEthernet4/0/3 - 4
+       shutdown
+       end
+
+     Record timestamp of shutdown.
+
+2.2  IMMEDIATELY verify (within 5 seconds):
+       show etherchannel summary
+       show interfaces Port-channel41 | include line protocol
+       show interfaces Port-channel40 | include line protocol
+       show ip ospf neighbor
+       show bfd neighbors
+     EXPECTED:
+       Po41 DOWN (RD) with Te4/0/3(D) + Te4/0/4(D)
+       Po40 REMAINS UP (RU) with Te4/0/1(P) + Te4/0/2(P) <<<< CRITICAL
+       OSPF to BC1 (192.168.40.1) REMAINS FULL <<<< CRITICAL
+       BFD to BC1 (192.168.40.1) REMAINS UP <<<< CRITICAL
+
+2.3  Spirent convergence monitoring (3 minutes):
+     EXPECTED: Minimal or ZERO loss (dual-homed failover)
+     ACTION:
+       a. Watch Spirent GUI for dead streams (expect zero or minimal)
+       b. After 3 minutes: STOP traffic
+       c. Export Spirent DB (.tcc)
+       d. Upload to PLA: http://spirent-pla.cisco.com
+       e. Download PLA Excel with convergence analysis
+       f. Record MAX/MIN/AVG convergence times per stream
+
+2.4  CLI on L2H-1 during failure:
+       show etherchannel summary
+       show etherchannel 40 summary
+       show etherchannel 41 summary
+       show interfaces Port-channel40
+       show interfaces Port-channel41
+       show interfaces Te4/0/1 through Te4/0/4
+       show lacp 40 counters
+       show lacp 41 counters
+       show ip ospf neighbor
+       show ip route ospf | include 192.168
+       show bfd neighbors
+       show lisp session
+       show ip route summary
+       show cts role-based counters
+       show logging | include OSPF|LACP|BFD
+     Verify:
+       Po41 DOWN, Po40 UP
+       OSPF only to BC1 via Po40 (BC2 adjacency DOWN)
+       BFD only to BC1 via Po40
+       ALL routes via Po40 only (no ECMP)
+       LISP sessions: BOTH remain established (BC2 reachable via fabric)
+
+2.5  CLI on FS2_BC1 during failure (Po40 redundancy validation):
+       show etherchannel 40 summary
+       show interfaces Port-channel40
+       show lacp 40 counters
+       show ip ospf neighbor | include 192.168.102.40
+       show bfd neighbors | include 192.168.102.40
+       show lisp session | include 192.168.102.40
+       show ip route ospf | begin Gateway
+       show logging | include OSPF|LACP|BFD
+     Verify:
+       Po40 REMAINS UP (Fif1/0/13(P) + Fif1/0/14(P))
+       OSPF to L2H-1 (192.168.102.40) FULL via Po40
+       LISP to L2H-1 (192.168.102.40) UP
+       Traffic absorbed: ~280 Mbps output on Po40
+
+2.6  CLI on FS2_BC2 during failure:
+       show etherchannel 41 summary
+       show interfaces Port-channel41 | include line protocol|BW
+       show lacp 41 counters
+       show ip ospf neighbor | include 192.168.102.40
+       show lisp session | include 192.168.102.40
+       show logging | include OSPF|LACP
+     Verify:
+       Po41 DOWN (RD) with Fif2/0/13(D) + Fif2/0/14(D)
+       OSPF to L2H-1 DOWN
+       Syslog: BFD_SESS_DESTROYED + OSPF FULL to DOWN (BFD node down)
+       LISP session to L2H-1 may remain UP (via alternate fabric path)
+
+2.7  Catalyst Center during failure:
+       Provision > Inventory > FS2_L2H_1
+       EXPECTED: Still Reachable (management via Po40)
+       Screenshot.
+
+PHASE 3: RECOVERY (Restore ENTIRE Port-Channel 41)
+----------------------------------------------------
+3.1  On FS2_L2H-1, restore BOTH member links:
+       conf t
+       interface range TenGigabitEthernet4/0/3 - 4
+       no shutdown
+       end
+
+     Record timestamp of restoration.
+
+3.2  Monitor Po41 bundle restoration:
+       show etherchannel 41 summary
+     Check every 5 seconds for up to 60 seconds.
+     EXPECTED: Po41 UP (RU) with Te4/0/3(P) and Te4/0/4(P)
+     Record rebundle time.
+
+3.3  Monitor OSPF adjacency to BC2 restoration:
+       show ip ospf neighbor | include 192.168.41.1
+     Check every 10 seconds for up to 60 seconds.
+     EXPECTED: FULL state to BC2 (192.168.41.1) via Po41
+     Record OSPF convergence time.
+
+3.4  Verify ECMP load-balancing restoration:
+       show ip route ospf | include 192.168
+     EXPECTED: Routes via BOTH Po40 and Po41 (ECMP restored)
+       show bfd neighbors
+     EXPECTED: BFD UP to both BCs
+       show lisp session
+     EXPECTED: Both sessions UP (should already be UP)
+
+3.5  Spirent post-recovery: START traffic, clear counters, wait 60s.
+     Verify 0.000% loss on all streams. Screenshot.
+
+3.6  Full CLI validation on L2H-1:
+       show etherchannel summary
+       show etherchannel 40 summary
+       show etherchannel 41 summary
+       show interfaces Port-channel40
+       show interfaces Port-channel41
+       show interfaces Te4/0/1 through Te4/0/4
+       show lacp 40 neighbor
+       show lacp 41 neighbor
+       show ip ospf neighbor
+       show ip route ospf | include 192.168
+       show bfd neighbors
+       show lisp session
+       show ip route summary
+       show cts role-based counters
+       show logging | include OSPF|LACP|BFD
+     Compare ALL values to Phase 1 baseline.
+
+3.7  CLI on FS2_BC1 post-recovery:
+       show etherchannel 40 summary
+       show interfaces Port-channel40
+       show lacp 40 counters
+       show ip ospf neighbor
+       show ip bgp summary
+       show lisp session
+       show bfd neighbors
+       show logging | include OSPF|LACP
+
+3.8  CLI on FS2_BC2 post-recovery:
+       show etherchannel 41 summary
+       show interfaces Port-channel41
+       show lacp 41 counters
+       show ip ospf neighbor
+       show ip bgp summary
+       show lisp session
+       show bfd neighbors
+       show logging | include OSPF|LACP
+
+3.9  Catalyst Center post-recovery:
+       Provision > Inventory > FS2_L2H_1: Verify Reachable, Health >= 80%
+       Assurance > Health: Network Health >= 80%
+       Screenshots.
+
+ITERATIONS: Repeat Phases 1-3 three times (Iter1, Iter2, Iter3).
+
+================================================================================
+PASS/FAIL CRITERIA
+================================================================================
+
+PASS:
+  [x] Port-Channel 41 goes DOWN when both members shut (EXPECTED)
+  [x] Port-Channel 40 REMAINS UP during Po41 failure (CRITICAL)
+  [x] OSPF adjacency to BC2 goes DOWN (EXPECTED)
+  [x] OSPF adjacency to BC1 REMAINS FULL (CRITICAL)
+  [x] BFD to BC1 REMAINS UP during failure (CRITICAL)
+  [x] LISP sessions BOTH remain established (CRITICAL - proves fabric path)
+  [x] All routes reconverge to Po40 only (no ECMP during failure)
+  [x] Spirent: Minimal or zero packet loss (dual-homed redundancy)
+  [x] Po41 fully restores after no shutdown (both members bundle)
+  [x] OSPF adjacency to BC2 restores to FULL
+  [x] BFD to both BCs restored
+  [x] ECMP resumes (routes via both Po40 and Po41)
+  [x] Spirent shows 0.000% after recovery
+  [x] All metrics fully restored to Phase 1 baseline after recovery
+  [x] Results consistent across 3 iterations (+/- 20%)
+
+FAIL:
+  [ ] Po40 goes DOWN during Po41 failure (UNEXPECTED - dual-homing broken)
+  [ ] OSPF to BC1 drops during Po41 failure (should stay FULL)
+  [ ] LISP sessions both drop (should survive via fabric path)
+  [ ] Significant packet loss during failover (dual-homed should be hitless)
+  [ ] Po41 fails to come UP after no shutdown
+  [ ] LACP rebundle fails (members stuck in suspended/down)
+  [ ] OSPF to BC2 fails to restore to FULL
+  [ ] ECMP does not resume after recovery
+  [ ] Permanent dead flows after recovery
+  [ ] Traffic does not restore to 0.000% after recovery
+  [ ] Metrics do not restore to baseline
+  [ ] Iteration variance > 20%
+
+================================================================================
+RESULT
+================================================================================
+
+Overall Result: PASS
+
+Iteration 1 (April 7, 2026  16:29 - 17:02):
+  Phase 1 (Baseline): PASS   Phase 2 (Failure): PASS   Phase 3 (Recovery): PASS
+  Baseline: Po40(RU) + Po41(RU), OSPF FULL both BCs, BFD UP both, 2 LISP UP
+  Failure:  Po41(RD) Te4/0/3(D)+Te4/0/4(D), Po40(RU) held, OSPF FULL to BC1
+            LISP: 2/2 sessions remained UP, all routes via Po40
+  Recovery: Po41(RU) Te4/0/3(P)+Te4/0/4(P), ECMP restored, OSPF FULL both BCs
+            BFD UP both, 2 LISP UP, ECMP routes via Po40+Po41
+
+Iteration 2 (April 7, 2026  17:04 - 17:16):
+  Phase 1 (Baseline): PASS   Phase 2 (Failure): PASS   Phase 3 (Recovery): PASS
+  Baseline: Po40(RU) + Po41(RU), OSPF FULL both BCs, BFD UP both, 2 LISP UP
+  Failure:  Po41(RD) Te4/0/3(D)+Te4/0/4(D), Po40(RU) held, OSPF FULL to BC1
+            LISP: 2/2 sessions remained UP, all routes via Po40
+  Recovery: Po41(RU) restored, ECMP restored, OSPF FULL both BCs
+
+Iteration 3 (April 7, 2026  19:13 - 19:24):
+  Phase 1 (Baseline): PASS   Phase 2 (Failure): PASS   Phase 3 (Recovery): PASS*
+  Baseline: Po40(RU) + Po41(RU), OSPF FULL both BCs, BFD UP both, 2 LISP UP
+  Failure:  Po41(RD) Te4/0/3(D)+Te4/0/4(D), Po40(RU) held, OSPF FULL to BC1
+            LISP: 2/2 sessions remained UP, all routes via Po40
+  Recovery: Screenshots captured showing restoration
+  *Note: Post-recovery CLI files not collected by automation script
+
+Consistency Check:
+  All 3 iterations within +/- 20%: [x] YES  [ ] NO
+  All 3 iterations PASS: [x] YES  [ ] NO
+
+Key Observations (consistent across all 3 iterations):
+  1. Po40 absorbed ALL traffic immediately - no traffic blackhole
+  2. LISP sessions to BOTH BCs remained UP during failure
+     (BC2 reachable via Po40 -> BC1 -> fabric -> BC2)
+  3. OSPF reconverged all routes to Po40-only within seconds
+  4. BFD on BC2 detected failure and triggered OSPF down:
+     "BFD-6-BFD_SESS_DESTROYED ... Port-channel41"
+     "OSPF-5-ADJCHG: Process 1, Nbr 192.168.102.40 ... FULL to DOWN, BFD node down"
+  5. Po40 input rate increased from ~193 Mbps to ~278 Mbps (absorbed Po41 load)
+  6. Recovery: Po41 rebundled, OSPF FULL restored, ECMP resumed
+
+Combined with TC 07-02: Dual-homing validated in BOTH directions.
+  TC 07-02: Po40 down -> Po41 provides redundancy (PASS)
+  TC 07-03: Po41 down -> Po40 provides redundancy (PASS)
+
+Notes:
+  - Iteration 3 post-recovery CLI files not captured (script terminated
+    after Phase 2 collection). Screenshots confirm recovery. Iterations
+    1 and 2 provide complete post-recovery CLI evidence.
+  - BC2 alternate credential (dnac_admin_tacacs) used as fallback for
+    TACACS+ authentication on some iterations.
+
+Completed by: wbenbark          Date: 2026-04-07   Time: 19:24
+
+================================================================================
+TECHNICAL NOTES
+================================================================================
+
+1. DUAL-HOMED L2 BORDER ARCHITECTURE: FS2_L2H-1 connects to TWO Border
+   Controllers (BC1 via Po40, BC2 via Po41). This provides active-active
+   redundancy. When either path fails, the surviving path immediately
+   absorbs all traffic. Unlike TC 07-02 (which tests BC1 path failure),
+   TC 07-03 tests BC2 path failure - the mirror scenario.
+
+2. PORT-CHANNEL FAILURE BEHAVIOR: When ALL members of Po41 are shut down,
+   the Port-Channel interface transitions to "down/down (notconnect)".
+   BW drops from 20 Gbps to 100 Kbps (default for down state). On the
+   BC2 side, Fif2/0/13(D) + Fif2/0/14(D) also go down.
+
+3. OSPF + BFD INTERACTION: BFD provides sub-second failure detection.
+   BC2 syslog shows: BFD_SESS_DESTROYED followed immediately by OSPF
+   adjacency FULL to DOWN. Dead timer (default 40s) is bypassed by BFD.
+   On L2H-1, OSPF to BC1 (192.168.40.1 via Po40) remains FULL throughout.
+
+4. LISP SESSION SURVIVABILITY: Both LISP sessions remained established
+   during Po41 failure. This is because LISP sessions use Loopback0
+   addresses (192.168.100.1 for BC1, 192.168.100.2 for BC2). BC2's
+   loopback is still reachable via: L2H-1 -> Po40 -> BC1 -> fabric -> BC2.
+   The TCP 4342 session to BC2 survives the indirect path change.
+
+5. ECMP RECONVERGENCE: During failure, OSPF withdraws all routes via
+   Po41. Routes that had ECMP (e.g., 0.0.0.0/0 via both Po40 and Po41)
+   converge to Po40-only. Routes that were only via Po41 (e.g.,
+   192.168.20.8 via Po41 at cost 110) reconverge via Po40 at higher
+   cost (115). After recovery, ECMP is restored to baseline.
+
+6. TRAFFIC ABSORPTION: Po40 baseline rate was ~193 Mbps input. During
+   failure, Po40 absorbed Po41's traffic, increasing to ~278 Mbps. This
+   is within the 20 Gbps aggregate capacity (2x 10G members), so no
+   congestion or drops occurred.
+
+7. BANDWIDTH HEADROOM: Each port-channel has 20 Gbps capacity. Combined
+   traffic load is ~386 Mbps (well under 20 Gbps). The surviving path
+   has ample capacity to absorb the failed path's traffic without
+   congestion. In production, traffic engineering should ensure that a
+   single path can handle the combined load.
+
+8. RECOVERY SEQUENCE: After "no shutdown" on Te4/0/3-4:
+   - Physical link up: 1-2 seconds (SFP-10GBase-SR optics)
+   - LACP bundle formation: 5-15 seconds (fast LACP PDUs)
+   - OSPF adjacency: 10-15 seconds (Hello + Full state machine)
+   - BFD session establishment: ~5 seconds
+   - ECMP routes installed: immediate once OSPF FULL
+   - Total recovery to baseline: ~20-30 seconds typical
+
+9. COMPARISON TO TC 07-02: TC 07-02 shuts the primary path (Po40 to BC1).
+   TC 07-03 shuts the secondary path (Po41 to BC2). Both tests show
+   identical behavior: the surviving path absorbs traffic, LISP sessions
+   survive, and full recovery occurs after restoration. This confirms
+   the dual-homing design is symmetric and either path can serve as the
+   sole active path.
+
+================================================================================
+DELIVERABLES
+================================================================================
+
+Per Iteration (x3):
+
+CLI Outputs (9 files per iteration, 3 devices):
+  [x] Iter{n}_Pre_L2H1_Baseline.txt
+  [x] Iter{n}_Pre_BC1_Baseline.txt
+  [x] Iter{n}_Pre_BC2_Baseline.txt
+  [x] Iter{n}_During_L2H1_Failure.txt
+  [x] Iter{n}_During_BC1_Status.txt
+  [x] Iter{n}_During_BC2_Status.txt
+  [x] Iter{n}_Post_L2H1_Validation.txt      (Iter1, Iter2 only)
+  [x] Iter{n}_Post_BC1_Validation.txt        (Iter1, Iter2 only)
+  [x] Iter{n}_Post_BC2_Validation.txt        (Iter1, Iter2 only)
+
+Screenshots:
+  Iteration 1:
+    [x] PreCaptures/   - 8 screenshots (Spirent baseline, CC health)
+    [x] During/        - 4 screenshots (Spirent convergence, CC status)
+    [x] PostCaptures/  - 20 screenshots (Spirent restored, CC recovery)
+  Iteration 2:
+    [x] 6 screenshots (Pre + During + Post combined)
+  Iteration 3:
+    [x] 8 screenshots (Pre + During + Post combined)
+
+Spirent Convergence Analysis:
+  [ ] PLA analysis (if packet loss observed)
+  [ ] Convergence Excel
+
+Summary:
+  [ ] TC-07-03_Test_Case_Report.docx
+  [x] TC-07-03_CXTM.txt (this file)
+
+Automation:
+  [x] run_tc_07-03.py (Python/Netmiko, 3-phase, 3-iteration)
+
+Total Evidence: 24 CLI files + 46 screenshots + automation script + CXTM
+
+================================================================================
+END OF TC 07-03
+================================================================================

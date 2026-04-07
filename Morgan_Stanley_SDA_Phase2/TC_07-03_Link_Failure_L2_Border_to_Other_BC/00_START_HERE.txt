@@ -1,0 +1,183 @@
+================================================================================
+TC 07-03: Link Failure from L2 Border Physical Link to Other BC Node
+QUICK START GUIDE - DUAL-HOMED TOPOLOGY (Po41 Failure Test)
+================================================================================
+
+TEST OVERVIEW:
+--------------
+This test is the MIRROR of TC 07-02 retest, validating dual-homing redundancy
+in the OPPOSITE direction:
+
+  TC 07-02 Retest: Shut Po40 (to BC1) → Po41 (to BC2) provides redundancy
+  TC 07-03:        Shut Po41 (to BC2) → Po40 (to BC1) provides redundancy
+
+This proves that dual-homing works BIDIRECTIONALLY — either path can sustain
+full traffic when the other fails.
+
+TOPOLOGY:
+---------
+  FS2_L2H-1 (172.31.0.194) - L2 Border Device
+      ├── Po40 --> FS2_BC1 (172.31.2.0)  [STAYS UP - Redundant Path]
+      └── Po41 --> FS2_BC2 (172.31.2.2)  [WILL BE SHUT DOWN]
+
+EXPECTED RESULT:
+----------------
+  - Convergence: <1 second (sub-second failover to Po40)
+  - Packet Loss: <1% (near-zero via Po40 redundancy)
+  - ECMP: Traffic shifts from BC2 to BC1 seamlessly
+
+COMPARISON TO ORIGINAL:
+-----------------------
+  Original Single-Homed:  ~2 minute outage, significant packet loss
+  Dual-Homed (TC 07-03):  <1 second convergence, minimal packet loss
+  Improvement: >99% reduction in convergence time
+
+================================================================================
+QUICK START - 3 STEPS TO RUN THE TEST
+================================================================================
+
+STEP 1: PREREQUISITES (5 minutes)
+----------------------------------
+✓ Verify devices reachable:
+    FS2_L2H-1: ssh admin1@172.31.0.194
+    FS2_BC1:   ssh admin1@172.31.2.0
+    FS2_BC2:   ssh admin1@172.31.2.2 (or dnac_admin_tacacs)
+
+✓ Verify dual-homed topology UP:
+    show interface Po40 | include line protocol     # Should be UP
+    show interface Po41 | include line protocol     # Should be UP
+
+✓ Install netmiko:
+    pip3 install netmiko
+
+✓ Open Spirent GUI (172.31.0.22:8088) and verify traffic flowing
+✓ Open Catalyst Center and verify device health (all 10/10)
+
+STEP 2: RUN ITERATION 1 (10 minutes)
+-------------------------------------
+cd /path/to/TC_07-03_Link_Failure_L2_Border_to_Other_BC
+chmod +x run_tc_07-03.py
+python3 run_tc_07-03.py --iter 1
+
+The script will:
+  1. Collect baseline CLI from L2H-1, BC1, BC2 → Iter1_CLI/
+  2. PAUSE and ask you to take Spirent screenshots
+  3. Shut down Po41 on FS2_L2H-1
+  4. PAUSE and ask you to capture failure screenshots
+  5. Collect during-failure CLI
+  6. Restore Po41 (no shutdown)
+  7. PAUSE and ask you to capture recovery screenshots
+  8. Collect post-recovery CLI
+
+Manual Actions Required:
+  ⚠ Take Spirent screenshots at each PAUSE (baseline, failure, recovery)
+  ⚠ Take Catalyst Center screenshots showing device health
+  ⚠ Save screenshots to Images_Iteration1/ folder
+
+STEP 3: RUN ITERATIONS 2 & 3 (20 minutes)
+------------------------------------------
+python3 run_tc_07-03.py --iter 2   # Save screenshots to Images_Iteration2/
+python3 run_tc_07-03.py --iter 3   # Save screenshots to Images_Iteration3/
+
+Purpose: Validate ±20% consistency across 3 iterations (Spirent best practice)
+
+STEP 4: ANALYZE RESULTS (10 minutes)
+-------------------------------------
+Review Spirent PLA metrics:
+  - Dead flows: [Should be 0 or very low]
+  - Flows with drops: [Should be <1%]
+  - Convergence time: [Target <1 second, must be <5 seconds]
+
+Compare to TC 07-02 results:
+  - Both tests should show similar convergence (bidirectional redundancy)
+  - Both tests should show ~120 second improvement vs. original single-homed
+
+STEP 5: GENERATE REPORT (Optional)
+-----------------------------------
+python3 generate_report.py
+
+This creates a Word document with embedded CLI outputs and placeholders for
+Spirent screenshots.
+
+================================================================================
+KEY DIFFERENCES: TC 07-02 vs TC 07-03
+================================================================================
+
+                    TC 07-02 Retest         TC 07-03
+                    ===============         ========
+Failed Path:        Po40 (to BC1)           Po41 (to BC2)
+Redundant Path:     Po41 (to BC2)           Po40 (to BC1)
+Shutdown Command:   int Po40 / shut         int Po41 / shut
+Traffic Route:      Shifts to BC2           Shifts to BC1
+OSPF Neighbor:      BC1 goes down           BC2 goes down
+LISP Session:       BC1 session lost        BC2 session lost
+
+Both tests validate:
+  ✓ Sub-second convergence
+  ✓ Minimal packet loss (<1%)
+  ✓ ECMP restoration after recovery
+  ✓ Bidirectional redundancy (either path can fail safely)
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+ISSUE: BC2 connection fails (admin1 rejected)
+FIX:   Script auto-falls back to dnac_admin_tacacs
+       Or manually edit BC2_ALT credentials in run_tc_07-03.py
+
+ISSUE: Po41 shutdown doesn't cause failover (traffic still flows through BC2)
+FIX:   STOP TEST - Po41 may not be physically connected or routing issue exists
+       Verify: show ip route vrf * | include 192.168.41
+
+ISSUE: Convergence >5 seconds
+FIX:   Check OSPF timers: show ip ospf interface Po40
+       Check Po40 bundle status: show port-channel summary
+
+ISSUE: Spirent shows packet loss even after recovery
+FIX:   Wait additional 60 seconds for full OSPF/LISP convergence
+       Verify ECMP: show ip cef vrf <vrf_name> | include 192.168
+
+ISSUE: Script hangs at "Connecting to..."
+FIX:   Verify SSH reachability: ssh -v admin1@172.31.0.194
+       Check TACACS: test aaa group MSTACACS admin1 CXlabs.123 new-code
+
+================================================================================
+SUCCESS CRITERIA
+================================================================================
+
+PASS if ALL criteria met:
+  ✓ 3 iterations completed successfully
+  ✓ Average convergence: <5 seconds (target <1 second)
+  ✓ Average packet loss: <1%
+  ✓ Results within ±20% across iterations
+  ✓ No device crashes or protocol flaps
+  ✓ ECMP restored after recovery
+  ✓ Similar performance to TC 07-02 (proves bidirectional redundancy)
+
+DELIVERABLES:
+  ✓ CLI evidence: Iter1_CLI/, Iter2_CLI/, Iter3_CLI/
+  ✓ Spirent screenshots: Images/ folder (18+ screenshots)
+  ✓ CXTM results: TC-07-03_CXTM_Results.txt
+  ✓ Word report: TC-07-03_Link_Failure_L2_Border_to_Other_BC_Report.docx
+
+================================================================================
+NEED MORE HELP?
+================================================================================
+
+Full Documentation:
+  - README.md - Comprehensive usage guide with topology details
+  - TC-07-03_Execution_Plan.txt - Step-by-step execution workflow
+  - TC-07-03_CXTM.txt - Complete test case specification
+
+Related Test Cases:
+  - TC 07-01: Single member link failure (Po member shutdown)
+  - TC 07-02 Retest: Dual-homed Po40 failure (mirror of this test)
+  - TC 07-04: [If applicable]
+
+GitHub Repository:
+  https://github.com/wbenbarkgithub/general/tree/main/Morgan_Stanley_SDA_Phase2
+
+================================================================================
+END OF QUICK START GUIDE
+================================================================================
