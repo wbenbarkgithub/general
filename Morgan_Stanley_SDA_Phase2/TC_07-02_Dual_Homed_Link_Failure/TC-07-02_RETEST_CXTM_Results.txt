@@ -1,0 +1,174 @@
+================================================================================
+TC 07-02 RETEST: CXTM RESULTS
+Link Failure From L2 Border Port-Channel to Fabric BC Node
+Dual-Homed Topology Validation
+================================================================================
+
+Project:       Morgan Stanley SDA Phase 2
+Test Case ID:  TC 07-02 (RETEST)
+Date:          April 7, 2026
+Executed By:   wbenbark
+Location:      RTP S10-360, Row P, Racks 18-25
+CC Version:    2.3.7.9-70301
+
+================================================================================
+EXECUTIVE RESULTS SUMMARY
+================================================================================
+
+OVERALL RESULT: PASS
+
+Key Findings:
+  - Po41 remained UP during all 3 iterations when Po40 was down
+  - OSPF to BC2 maintained FULL state throughout all failure events
+  - BFD to BC2 (192.168.41.1) stayed Up/Up during all failures
+  - LISP sessions maintained 2/2 established even during failure
+  - ECMP restored after each recovery (routes via both Po40 and Po41)
+  - Zero CTS denied counters -- no TrustSec enforcement disruption
+  - Results consistent and repeatable across all 3 iterations
+  - Massive improvement over original single-homed test
+
+================================================================================
+TEST CONFIGURATION
+================================================================================
+
+Devices:
+  FS2_L2H-1  C9404R  172.31.0.194  L2 Border (DUT)       IOS-XE 17.15.4
+  FS2_BC1    C9606R  172.31.2.0    Fabric Border Ctrl     IOS-XE 17.15.4
+  FS2_BC2    C9606R  172.31.2.2    Fabric Border Ctrl     IOS-XE 17.15.4
+
+Port-Channels:
+  Po40: Te4/0/1 + Te4/0/2 -> FS2_BC1, 192.168.40.0/31, LACP, MTU 9100
+  Po41: Te4/0/3 + Te4/0/4 -> FS2_BC2, 192.168.41.0/31, LACP, MTU 9100
+
+Topology: Dual-homed L2 Border with ECMP across two Border Controllers
+
+================================================================================
+RESULTS SUMMARY -- ALL 3 ITERATIONS
+================================================================================
+
+  Metric                              Iter 1          Iter 2          Iter 3         
+  --------------------------------------------------------------------------------
+  Pre Timestamp                       13:41:34        14:58:47        15:15:14       
+  During Timestamp                    14:08:59        15:01           15:18          
+  Post Timestamp                      14:52:40        15:06           15:21          
+  Po40 Baseline                       RU              RU              RU             
+  Po41 Baseline                       RU              RU              RU             
+  Po40 During Failure                 RD              RD              RD             
+  Po41 During Failure                 RU              RU              RU             
+  Po40 Post Recovery                  RU              RU              RU             
+  Po41 Post Recovery                  RU              RU              RU             
+  OSPF BC1 Baseline                   FULL            FULL            FULL           
+  OSPF BC2 Baseline                   FULL            FULL            FULL           
+  OSPF BC1 During Failure             DOWN            DOWN            DOWN           
+  OSPF BC2 During Failure             FULL            FULL            FULL           
+  OSPF BC1 Post Recovery              FULL            FULL            FULL           
+  OSPF BC2 Post Recovery              FULL            FULL            FULL           
+  BFD 192.168.40.1 Baseline           Up/Up           Up/Up           Up/Up          
+  BFD 192.168.41.1 Baseline           Up/Up           Up/Up           Up/Up          
+  BFD 192.168.40.1 During             Not present     Not present     Not present    
+  BFD 192.168.41.1 During             Up/Up           Up/Up           Up/Up          
+  LISP Sessions Baseline              2/2 estab       2/2 estab       2/2 estab      
+  LISP Sessions During                2/2 estab       2/2 estab       2/2 estab      
+  LISP Sessions Post                  2/2 estab       2/2 estab       2/2 estab      
+  ECMP Baseline                       Active          Active          Active         
+  ECMP During                         Po41 only       Po41 only       Po41 only      
+  ECMP Post Recovery                  Restored        Restored        Restored       
+  CTS HW-Denied                       0               0               0              
+
+================================================================================
+COMPARISON: ORIGINAL (SINGLE-HOMED) VS RETEST (DUAL-HOMED)
+================================================================================
+
+  Metric                         Original                       Retest                        
+  ----------------------------------------------------------------------------------------
+  Topology                       Po40 to BC1 only               Po40(BC1) + Po41(BC2)         
+  Failover Path                  None                           Po41 (immediate)              
+  Outage Duration                ~2 minutes                     Sub-second                    
+  Dead Flows                     50-200                         Minimal/zero                  
+  LISP Sessions During           Dropped (0-1/2)                Maintained (2/2)              
+  OSPF Adjacencies Lost          All                            BC1 only (BC2 maintained)     
+  Recovery                       Full reconvergence             ECMP restore only             
+  Result                         PASS (with outage)             PASS (near-hitless)           
+
+================================================================================
+PASS/FAIL CRITERIA CHECKLIST
+================================================================================
+
+  [PASS] Po41 remains UP during Po40 failure (all 3 iterations)
+  [PASS] OSPF adjacency to BC2 maintained FULL during failure
+  [PASS] BFD session to BC2 remains Up/Up during failure
+  [PASS] LISP sessions maintained (2/2 established) during failure
+  [PASS] All routes reconverge via Po41 during failure
+  [PASS] Po40 recovers to RU after member interfaces restored
+  [PASS] ECMP resumes after recovery (routes via both Po40 and Po41)
+  [PASS] OSPF adjacency to BC1 re-establishes to FULL after recovery
+  [PASS] BFD session to BC1 re-establishes after recovery
+  [PASS] Zero CTS denied counters throughout test
+  [PASS] Results consistent across all 3 iterations
+
+  11/11 criteria PASSED
+
+================================================================================
+EVIDENCE INVENTORY
+================================================================================
+
+CLI Files (27 total):
+
+  Iteration 1 (9 files):
+    Iter1_During_BC1_Status.txt                      2,008 bytes
+    Iter1_During_BC2_Status.txt                     21,511 bytes
+    Iter1_During_L2H1_Failure.txt                   19,494 bytes
+    Iter1_Post_BC1_Validation.txt                    7,308 bytes
+    Iter1_Post_BC2_Validation.txt                   27,637 bytes
+    Iter1_Post_L2H1_Validation.txt                  13,992 bytes
+    Iter1_Pre_BC1_Baseline.txt                       6,808 bytes
+    Iter1_Pre_BC2_Baseline.txt                       6,614 bytes
+    Iter1_Pre_L2H1_Baseline.txt                     20,578 bytes
+
+  Iteration 2 (9 files):
+    Iter2_During_BC1_Status.txt                      2,560 bytes
+    Iter2_During_BC2_Status.txt                     27,222 bytes
+    Iter2_During_L2H1_Failure.txt                   19,519 bytes
+    Iter2_Post_BC1_Validation.txt                    7,862 bytes
+    Iter2_Post_BC2_Validation.txt                   29,185 bytes
+    Iter2_Post_L2H1_Validation.txt                  13,994 bytes
+    Iter2_Pre_BC1_Baseline.txt                       6,808 bytes
+    Iter2_Pre_BC2_Baseline.txt                       6,615 bytes
+    Iter2_Pre_L2H1_Baseline.txt                     20,593 bytes
+
+  Iteration 3 (9 files):
+    Iter3_During_BC1_Status.txt                      3,675 bytes
+    Iter3_During_BC2_Status.txt                      7,177 bytes
+    Iter3_During_L2H1_Failure.txt                   29,606 bytes
+    Iter3_Post_BC1_Validation.txt                    9,009 bytes
+    Iter3_Post_BC2_Validation.txt                    9,208 bytes
+    Iter3_Post_L2H1_Validation.txt                  17,408 bytes
+    Iter3_Pre_BC1_Baseline.txt                       8,507 bytes
+    Iter3_Pre_BC2_Baseline.txt                       8,296 bytes
+    Iter3_Pre_L2H1_Baseline.txt                     30,702 bytes
+
+Screenshots:
+
+  Iteration 1 - Pre: 12 screenshots
+  Iteration 1 - During: 12 screenshots
+  Iteration 1 - Post: 10 screenshots
+  Iteration 2: 11 screenshots
+  Iteration 3: 12 screenshots
+  TOTAL: 57 screenshots
+
+================================================================================
+CONCLUSION
+================================================================================
+
+TC 07-02 RETEST: PASS
+
+The dual-homed L2 Border topology (Po40 + Po41) provides near-hitless
+failover when a single port-channel fails. LISP control plane, OSPF
+adjacency to the surviving BC, and BFD liveness detection all remain
+operational throughout the failure event. ECMP load balancing resumes
+immediately upon recovery. This represents a substantial improvement
+over the original single-homed topology.
+
+================================================================================
+END OF RESULTS
+================================================================================

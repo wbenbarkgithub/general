@@ -1,0 +1,386 @@
+================================================================================
+TC 07-02 RETEST: Dual-Homed Topology Validation
+START HERE - Quick Guide
+================================================================================
+
+📁 WHAT'S IN THIS FOLDER
+=========================
+
+✅ Created: April 7, 2026
+✅ Status: Ready for execution
+✅ Test Type: TC 07-02 RETEST with dual-homing (Po40 + Po41)
+✅ Purpose: Validate near-hitless failover with dual-homed topology
+
+WHY THIS RETEST?
+----------------
+Original test (completed earlier today) was SINGLE-HOMED:
+  - FS2_L2H-1 had ONLY Po40 to FS2_BC1
+  - Po40 failure → Complete connectivity loss
+  - Recovery time: ~2 minutes
+  - Significant packet loss and dead flows
+
+NEW topology (after Po41 implementation at 11:56 AM today):
+  - FS2_L2H-1 now has Po40 (BC1) AND Po41 (BC2)
+  - ECMP load-balancing active
+  - Po40 failure → Po41 provides instant redundancy
+  - Expected: Sub-second convergence, minimal/zero loss
+
+FILES IN THIS FOLDER:
+--------------------
+1. run_tc_07-02_retest.py (executable Python script)
+   - Updated for dual-homed topology
+   - Collects from 3 devices: L2H-1, BC1, BC2
+   - Enhanced ECMP and redundancy validation
+
+2. README.md (comprehensive documentation)
+   - Full comparison: single-homed vs. dual-homed
+   - Updated expectations and success criteria
+   - Troubleshooting guide
+
+3. 00_START_HERE.txt (this file)
+   - Quick start guide
+
+
+📊 EXPECTED BEHAVIOR (DUAL-HOMED)
+==================================
+
+BASELINE (Phase 1):
+  ✅ Po40 UP to BC1 (192.168.40.0/31)
+  ✅ Po41 UP to BC2 (192.168.41.0/31)
+  ✅ OSPF FULL to BOTH BC1 and BC2
+  ✅ BFD UP to BOTH BCs
+  ✅ ECMP load-balancing active (traffic via both paths)
+  ✅ Spirent: 0.000% loss
+
+DURING Po40 FAILURE (Phase 2):
+  ❌ Po40 goes DOWN (EXPECTED)
+  ✅ Po41 STAYS UP (CRITICAL - validates dual-homing!)
+  ❌ OSPF to BC1 goes DOWN (EXPECTED)
+  ✅ OSPF to BC2 STAYS FULL (CRITICAL)
+  ✅ BFD to BC2 STAYS UP (CRITICAL)
+  ✅ TACACS accessible via Po41 (no local admin needed)
+  ✅ Spirent: Minimal loss (<1 second) or HITLESS
+  ✅ Dead flows: MINIMAL or ZERO
+
+RECOVERY (Phase 3):
+  ✅ Po40 restores normally
+  ✅ OSPF to BC1 restores to FULL
+  ✅ ECMP resumes (traffic via BOTH Po40 and Po41)
+  ✅ Spirent: 0.000% loss
+  ✅ No traffic impact during recovery
+
+
+🚀 QUICK START (3 STEPS)
+=========================
+
+STEP 1: Verify Dual-Homing is Active
+-------------------------------------
+Before running retest, confirm Po41 is operational:
+
+ssh admin1@172.31.0.194   # FS2_L2H-1
+
+show etherchannel summary
+  → Should show BOTH Po40 and Po41 UP
+
+show ip ospf neighbor
+  → Should show BC1 (192.168.40.1) and BC2 (192.168.41.1) FULL
+
+show ip route ospf | include 192.168.20.0
+  → Should show ECMP (routes via both Po40 and Po41)
+
+If any of the above FAIL, do NOT proceed - fix dual-homing first!
+
+STEP 2: Install Prerequisites
+------------------------------
+pip install netmiko
+
+STEP 3: Run Retest
+------------------
+cd "/Users/wbenbark/MS_SVS_SDA_Phase2/Test Case Logs/07-02_Link_Failure_From_L2_Border_PortChannel_to_Fabric_BC_Node/retest"
+
+# Iteration 1
+python3 run_tc_07-02_retest.py --iter 1
+
+# Iteration 2 (after completing Iteration 1)
+python3 run_tc_07-02_retest.py --iter 2
+
+# Iteration 3 (after completing Iteration 2)
+python3 run_tc_07-02_retest.py --iter 3
+
+
+📋 COMPARISON: SINGLE vs. DUAL HOMED
+=====================================
+
+| Aspect                  | Original (Single) | Retest (Dual) |
+|-------------------------|-------------------|---------------|
+| Topology                | Po40 only         | Po40 + Po41   |
+| Po40 Failure Impact     | Total loss        | Po41 active   |
+| Convergence Time        | ~2 minutes        | Sub-second    |
+| Packet Loss Duration    | 3-10 seconds      | <1 second     |
+| Dead Flows              | 50-200+           | 0-10          |
+| OSPF During Failure     | All DOWN          | BC2 FULL      |
+| BFD During Failure      | All DOWN          | BC2 UP        |
+| TACACS Access           | Lost (local)      | Via Po41      |
+| Expected Improvement    | N/A               | ~120x faster  |
+
+
+📁 TEST PHASES
+==============
+
+PHASE 1: BASELINE (5-10 minutes)
+--------------------------------
+- Verify Spirent 0.000% loss (GATE)
+- Verify BOTH Po40 and Po41 UP
+- Verify OSPF FULL to BOTH BC1 and BC2
+- Verify BFD UP to BOTH BCs
+- Verify ECMP routing (dual paths visible)
+- Catalyst Center health check
+- Collect CLI from L2H-1, BC1, AND BC2
+- 3 screenshots (Spirent, CC health, CC network health)
+
+PHASE 2: FAILURE (10-15 minutes)
+---------------------------------
+- Shutdown BOTH Te4/0/1 AND Te4/0/2 on L2H-1 (Po40 goes DOWN)
+- Po41 MUST stay UP (CRITICAL validation point)
+- OSPF to BC2 MUST stay FULL
+- Monitor Spirent convergence (3 minutes)
+- STOP traffic, export .tcc DB
+- Upload to Spirent PLA for analysis
+- Download PLA Excel with convergence data
+- Collect CLI from L2H-1, BC1, AND BC2 during failure
+- 2 screenshots + PLA analysis
+
+PHASE 3: RECOVERY (10-15 minutes)
+----------------------------------
+- Restore both Po40 members (no shutdown)
+- Monitor Po40 rebundle (10-30 sec)
+- Monitor OSPF to BC1 convergence (15-30 sec)
+- Verify ECMP resumes (routes via both Po40 and Po41)
+- Restart Spirent, verify 0.000%
+- Collect CLI from L2H-1, BC1, AND BC2 post-recovery
+- 3 screenshots
+
+TOTAL TIME PER ITERATION: 25-40 minutes
+TOTAL TIME (3 iterations): 75-120 minutes (1.5-2 hours)
+
+
+⚠️  CRITICAL DIFFERENCES FROM ORIGINAL TEST
+===========================================
+
+1. ⚠️  MINIMAL TRAFFIC LOSS EXPECTED
+   Unlike original test (~2 min outage), dual-homing should provide
+   near-hitless failover. If you see significant loss, Po41 redundancy
+   is NOT working correctly - ABORT and investigate.
+
+2. ⚠️  Po41 MUST STAY UP
+   The ENTIRE point of this retest is validating Po41 provides redundancy.
+   If Po41 goes DOWN during Po40 failure, the test is INVALID.
+
+3. ⚠️  TACACS VIA Po41
+   Unlike original test, you should NOT need to switch to local admin.
+   TACACS remains accessible via Po41 throughout the test.
+
+4. ⚠️  COLLECT FROM 3 DEVICES
+   Original test collected from L2H-1 and BC1 only.
+   Retest collects from L2H-1, BC1, AND BC2 (9 files per iteration vs. 6).
+
+5. ⚠️  ECMP VERIFICATION
+   Baseline and recovery MUST show ECMP (routes via both Po40 and Po41).
+   During failure, routes should be via Po41 only.
+
+
+✅ SUCCESS CRITERIA (DUAL-HOMING)
+==================================
+
+PASS IF:
+[ ] Po40 goes DOWN when both members shut (EXPECTED)
+[ ] Po41 STAYS UP during entire Po40 failure (CRITICAL)
+[ ] OSPF to BC1 goes DOWN (EXPECTED)
+[ ] OSPF to BC2 STAYS FULL during entire failure (CRITICAL)
+[ ] BFD to BC2 STAYS UP during entire failure (CRITICAL)
+[ ] TACACS accessible via Po41 (no local admin needed)
+[ ] Convergence measured (PLA Excel downloaded)
+[ ] Packet loss < 1 second or HITLESS
+[ ] Dead flows: MINIMAL or ZERO (not 50-200+ like single-homed)
+[ ] Po40 fully restores after no shutdown
+[ ] OSPF to BC1 restores to FULL
+[ ] ECMP resumes (routes via BOTH Po40 and Po41)
+[ ] Spirent shows 0.000% after recovery
+[ ] All baseline metrics restored
+[ ] Results consistent across 3 iterations (+/- 20%)
+[ ] Convergence improvement vs. original test (sub-second vs. ~2 min)
+
+FAIL IF:
+[ ] Po41 goes DOWN during Po40 failure (dual-homing FAILED)
+[ ] OSPF to BC2 goes DOWN during Po40 failure
+[ ] BFD to BC2 goes DOWN during Po40 failure
+[ ] Convergence time > 5 seconds (no improvement over single-homed)
+[ ] Dead flows comparable to single-homed test (50+)
+[ ] ECMP does not resume after Po40 recovery
+[ ] TACACS not accessible via Po41 (indicates Po41 problem)
+
+
+📁 EVIDENCE COLLECTION (AUTOMATED)
+==================================
+
+After each iteration, the script creates:
+
+Iter{n}_CLI/ (9 files):
+- Iter{n}_Pre_L2H1_Baseline.txt
+- Iter{n}_Pre_BC1_Baseline.txt
+- Iter{n}_Pre_BC2_Baseline.txt           ← NEW (not in original)
+- Iter{n}_During_L2H1_Failure.txt
+- Iter{n}_During_BC1_Status.txt
+- Iter{n}_During_BC2_Status.txt          ← NEW (CRITICAL - validates Po41 UP)
+- Iter{n}_Post_L2H1_Validation.txt
+- Iter{n}_Post_BC1_Validation.txt
+- Iter{n}_Post_BC2_Validation.txt        ← NEW (not in original)
+
+Manual screenshots (8 per iteration):
+- Iter{n}_Pre_Spirent_Baseline.png
+- Iter{n}_Pre_CC_L2H1_Health.png
+- Iter{n}_Pre_CC_Network_Health.png
+- Iter{n}_During_Spirent_Convergence.png
+- Iter{n}_During_CC_L2H1_Status.png
+- Iter{n}_Post_Spirent_Restored.png
+- Iter{n}_Post_CC_L2H1_Health.png
+- Iter{n}_Post_CC_Network_Health.png
+
+Spirent convergence (3 files per iteration):
+- Iter{n}_During_Spirent_DB.tcc
+- Iter{n}_PLA_Convergence_Analysis.xlsx
+- Iter{n}_PLA_Analysis.png
+
+
+🔧 TROUBLESHOOTING
+==================
+
+Problem: Po41 goes DOWN during Po40 failure
+Solution: ABORT TEST - dual-homing is not working correctly
+          Check Po41 config, LACP, OSPF, and BFD
+          Review Po41 implementation logs in parent folder
+
+Problem: ECMP not showing in baseline
+Solution: Check OSPF costs: "show ip ospf interface Po40" and "Po41"
+          Should both show cost 100 (equal for ECMP)
+          Check routing: "show ip route ospf | include 192.168"
+
+Problem: BC2 SSH fails with admin1
+Solution: Script auto-retries with dnac_admin_tacacs (Memory #24)
+          If both fail, verify BC2 reachability and TACACS config
+
+Problem: TACACS requires local admin during Po40 failure
+Solution: This indicates Po41 is NOT providing connectivity - ABORT
+          Po41 should keep TACACS accessible throughout test
+
+Problem: Convergence time similar to original test (~2 min)
+Solution: This indicates dual-homing is not working as expected
+          Verify Po41 stayed UP during failure
+          Check OSPF to BC2 remained FULL
+          Review BC2 during-failure CLI collection
+
+
+🆘 ROLLBACK (EMERGENCY)
+=======================
+
+Same as original test:
+
+On FS2_L2H-1:
+-------------
+conf t
+interface range TenGigabitEthernet4/0/1 - 2
+no shutdown
+end
+
+Wait 30 seconds, then verify:
+show etherchannel summary
+  → Po40 and Po41 should BOTH be UP
+
+show ip ospf neighbor
+  → Should show BC1 and BC2 BOTH FULL
+
+show ip route ospf | include 192.168.20.0
+  → Should show ECMP (routes via both Po40 and Po41)
+
+
+🎯 EXPECTED CONVERGENCE TIMES (DUAL-HOMED)
+===========================================
+
+| Metric                   | Single-Homed  | Dual-Homed (Expected) |
+|--------------------------|---------------|-----------------------|
+| Po40 Down Detection      | Immediate     | Immediate             |
+| Po41 Status              | N/A           | STAYS UP              |
+| OSPF to BC1 Down         | 1-10 seconds  | 1-10 seconds          |
+| OSPF to BC2 Status       | N/A           | STAYS FULL            |
+| Packet Loss Duration     | 3-10 seconds  | <1 second or HITLESS  |
+| Dead Flows               | 50-200        | 0-10 (MINIMAL)        |
+| Traffic Failover         | ~2 minutes    | Sub-second (via Po41) |
+| LACP Rebundle (Recovery) | 10-30 seconds | 10-30 seconds         |
+| OSPF to BC1 (Recovery)   | 15-30 seconds | 15-30 seconds         |
+| ECMP Restoration         | N/A           | Immediate             |
+| Total Outage Time        | ~2 minutes    | <1 second             |
+| **IMPROVEMENT**          | Baseline      | **~120x FASTER**      |
+
+
+🏁 FINAL DELIVERABLES
+=====================
+
+After completing all 3 iterations:
+
+CLI Evidence:
+- 27 CLI files (9 per iteration × 3)
+
+Screenshots:
+- 24 screenshots (8 per iteration × 3)
+
+Spirent Analysis:
+- 3 .tcc files (Spirent DB exports)
+- 3 PLA Excel reports (convergence analysis)
+- 3 PLA screenshots
+
+Comparative Analysis:
+- Word document comparing single-homed vs. dual-homed results
+- Side-by-side convergence metrics
+- ECMP behavior analysis
+- Improvement quantification (~120x faster expected)
+
+Total evidence: ~60 files
+
+
+📚 RELATED DOCUMENTS
+====================
+
+Po41 Implementation (April 7, 2026):
+- ../Po41_Implementation_20260407_115546/IMPLEMENTATION_SUMMARY.md
+- ../DUAL_HOMING_ENHANCEMENT_Po41_Implementation.md
+
+Original Test Results (Single-Homed):
+- ../TC-07-02_Complete_Port_Channel_Failure_Report_20260407.docx
+- ../Iter1_CLI/, ../Iter2_CLI/, ../Iter3_CLI/
+- ../TC-07-02_CXTM_Results.txt
+
+Test Case Documentation:
+- ./README.md (this retest)
+- ../TC-07-02_CXTM.txt (original test case)
+- ../README.md (original test documentation)
+
+
+✨ YOU'RE READY!
+================
+
+This retest validates the Po41 dual-homing enhancement implemented
+today at 11:56 AM. Expected result: sub-second convergence vs.
+~2 minute outage in original single-homed test.
+
+CRITICAL: Verify Po41 is UP before starting (see STEP 1 above)!
+
+To begin:
+    python3 run_tc_07-02_retest.py --iter 1
+
+Good luck with your retest! 🚀
+
+================================================================================
+TC 07-02 RETEST - Dual-Homed Topology Validation
+Created: April 7, 2026
+Status: READY FOR EXECUTION
+================================================================================

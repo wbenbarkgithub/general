@@ -1,0 +1,145 @@
+================================================================================
+TEST CASE: TC 07-02 - Link Failure from L2 Border Port-Channel to Fabric BC Node
+RETEST VERSION: DUAL-HOMED TOPOLOGY (Po40 + Po41 Redundancy)
+================================================================================
+
+TEST ID: TC 07-02 RETEST
+TOPOLOGY: Dual-Homed L2 Border with Redundant Port-Channels
+OBJECTIVE: Validate HITLESS or NEAR-HITLESS failover when primary Po40 fails
+           with Po41 providing redundancy to FS2_BC2
+
+SCENARIO: Link failure from FS2_L2H-1 L2 Border device dual-homed to both
+          FS2_BC1 (Po40) and FS2_BC2 (Po41). Shutdown Po40 to validate that
+          Po41 maintains traffic flow with minimal or zero packet loss.
+
+EXPECTED RESULT: Sub-second convergence, minimal packet loss (target: <1%)
+                 Original single-homed test: ~2 minute outage
+                 Dual-homed retest: Sub-second failover via Po41
+
+================================================================================
+TEST EXECUTION WORKFLOW
+================================================================================
+
+PHASE 1: STEADY STATE BASELINE
+------------------------------
+1. Verify dual-homed topology operational
+   - FS2_L2H-1 Po40 to FS2_BC1: UP (primary path)
+   - FS2_L2H-1 Po41 to FS2_BC2: UP (redundant path)
+
+2. Capture baseline metrics:
+   - Spirent traffic validation (all streams alive)
+   - Interface statistics (both Po40 and Po41)
+   - OSPF neighbor states (both BCs)
+   - LISP session status (both BCs)
+   - Routing table (ECMP paths via both BCs)
+
+PHASE 2: FAILURE EVENT
+----------------------
+3. Shutdown Po40 on FS2_L2H-1
+   - Command: interface Po40 / shutdown
+   - Expected: Traffic shifts to Po41 immediately
+   - Convergence: OSPF detects neighbor down, LISP updates registration
+
+4. Capture failure metrics:
+   - Spirent PLA: Dead flows, flows with drops, convergence time
+   - Po41 interface counters (should increase)
+   - Po40 interface status (protocol down)
+   - OSPF neighbor count (should drop by 1)
+   - Routing table (single path via BC2)
+
+PHASE 3: RECOVERY
+-----------------
+5. Restore Po40
+   - Command: interface Po40 / no shutdown
+   - Expected: ECMP restored, load balancing across Po40 and Po41
+
+6. Capture recovery metrics:
+   - Spirent traffic validation (return to baseline)
+   - OSPF neighbor restoration timing
+   - LISP session re-establishment
+   - Routing table (ECMP paths restored)
+
+================================================================================
+TEST ACCEPTANCE CRITERIA
+================================================================================
+
+PASS CRITERIA:
+✓ Convergence time: <5 seconds (target: <1 second)
+✓ Packet loss: <1% (target: near-zero)
+✓ Po41 maintains connectivity during Po40 failure
+✓ ECMP restored after Po40 recovery
+✓ No device crashes or protocol flaps
+
+COMPARISON TO ORIGINAL TEST:
+- Original (single-homed): ~2 minute outage, significant packet loss
+- Retest (dual-homed): Sub-second convergence, minimal packet loss
+- Improvement: ~120 seconds reduced to <1 second (>99% improvement)
+
+================================================================================
+AUTOMATION SCRIPT
+================================================================================
+
+Script: run_tc_07-02_retest.py
+Usage: python3 run_tc_07-02_retest.py [--iter 1|2|3]
+
+Devices Automated:
+- FS2_L2H-1 (172.31.0.194) - L2 Border device with Po40/Po41
+- FS2_BC1 (172.31.2.0) - Border Controller (Po40 endpoint)
+- FS2_BC2 (172.31.2.2) - Border Controller (Po41 endpoint)
+
+CLI Commands Collected (per device):
+- show version
+- show inventory
+- show interface status
+- show port-channel summary
+- show ip interface brief
+- show ip route vrf *
+- show ip ospf neighbor
+- show lisp session
+- show run interface Po40 (L2H-1)
+- show run interface Po41 (L2H-1)
+
+Manual Steps:
+- Spirent PLA screenshots (before/during/after)
+- Catalyst Center health screenshots
+
+Evidence Directory Structure:
+- Iter1_CLI/, Iter2_CLI/, Iter3_CLI/
+- Images_Iteration1/, Images_Iteration2/, Images_Iteration3/
+
+================================================================================
+TEST RESULTS SUMMARY
+================================================================================
+
+ITERATION 1: [To be completed]
+ITERATION 2: [To be completed]
+ITERATION 3: [To be completed]
+
+FINAL RESULT: [PASS/FAIL]
+
+NOTES:
+- This is a RETEST after implementing Po41 dual-homing enhancement
+- Refer to RETEST_SUMMARY.md for detailed results
+- Refer to DUAL_HOMING_ENHANCEMENT_Po41_Implementation.md for design details
+
+================================================================================
+REFERENCES
+================================================================================
+
+Related Test Cases:
+- TC 07-01: Link Failure L2 Border Po Member (single link shutdown)
+- TC 07-03: [If applicable]
+- TC 07-04: [If applicable]
+
+Documentation:
+- 00_START_HERE.txt - Quick start guide
+- README.md - Comprehensive usage guide
+- RETEST_SUMMARY.md - Test results and analysis
+- Device_connection_template_L2H1.xlsx - Topology diagram
+
+GitHub Repository:
+https://github.com/wbenbarkgithub/general/tree/main/Morgan_Stanley_SDA_Phase2/TC_07-02_Dual_Homed_Link_Failure
+
+================================================================================
+END OF TEST CASE SPECIFICATION
+================================================================================
