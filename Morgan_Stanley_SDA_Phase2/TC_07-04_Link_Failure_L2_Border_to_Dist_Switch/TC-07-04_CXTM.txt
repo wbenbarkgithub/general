@@ -1,0 +1,556 @@
+================================================================================
+TC 07-04: Link Failure From L2 Border to Distribution Switch
+================================================================================
+
+Project:    Morgan Stanley SDA Phase 2
+Phase:      07 - Negative Testing - Layer 2 Border
+CXTM ID:    TBD
+Identifier: 07-04
+Suite:      05 - April-10 - Akshit
+Owner:      wbenbark
+Defects:    TBD
+Date:       April 2026
+
+================================================================================
+DESCRIPTION
+================================================================================
+
+Validate SDA fabric and L2 Border behavior when the Layer 2 trunk link
+between the L2 Border node (FS2_L2H-1) and the primary legacy distribution
+switch (L2-DIST-1) is shut down, with the secondary trunk to L2-DIST-2
+providing redundancy via STP reconvergence.
+
+FS2_L2H-1 connects to the legacy distribution layer via two independent
+10G trunk interfaces (NOT port-channeled, NOT LACP):
+  Te4/0/20 --> L2-DIST-1 Te4/0/20 (172.31.0.193) — WILL BE SHUT DOWN
+  Te4/0/21 --> L2-DIST-2 Te1/0/20 (172.31.0.180) — STAYS UP (redundant)
+
+Both trunks carry VLANs 101 (BMS1) and 1301 (EUT). FS2_L2H-1 is the STP
+root bridge for both VLANs. When Te4/0/20 is shut down:
+- L2-DIST-1 loses its uplink to the STP root bridge
+- STP reconverges — traffic shifts to Te4/0/21 via L2-DIST-2
+- Packet loss occurs during the STP convergence window
+- After STP converges, L2 handoff traffic resumes via L2-DIST-2
+
+This tests the access-facing / legacy-facing side of the L2 Border — the
+opposite direction from TC 07-01 through 07-03, which tested the fabric-
+facing (Border Controller) side.
+
+CRITICAL: The SDA fabric side MUST remain fully operational:
+- Po40 (to BC1) and Po41 (to BC2) remain UP
+- OSPF FULL to both Border Controllers
+- BFD UP to both Border Controllers
+- LISP sessions 2/2 established
+- Catalyst Center sees L2H-1 as Reachable
+
+Expected impact: Measurable packet loss during STP convergence window
+(1-30 seconds depending on STP mode), then full recovery via L2-DIST-2.
+Full restoration to dual-trunk baseline after Te4/0/20 is restored.
+
+================================================================================
+TOPOLOGY
+================================================================================
+
+  FABRIC SIDE (unaffected by this test):
+
+    SDA Fabric Underlay
+         |                              |
+    FS2_BC1 (C9606R)              FS2_BC2 (C9606R)
+    172.31.2.0                    172.31.2.2
+    Lo0: 192.168.100.1            Lo0: 192.168.100.2
+         |                              |
+    Po40 (LACP, L3)              Po41 (LACP, L3)
+    Te4/0/1+Te4/0/2             Te4/0/3+Te4/0/4
+    192.168.40.0/31              192.168.41.0/31
+         |                              |
+    +----+------------------------------+----+
+    |         FS2_L2H-1 (L2 Border)          |
+    |         C9404R / 172.31.0.194          |
+    |         Lo0: 192.168.102.40            |
+    |         SVI: Vlan101  10.5.28.1/22     |
+    |               Vlan1301 10.5.20.1/22    |
+    |         STP Root: VLAN 101, VLAN 1301  |
+    +--------+------------------+------------+
+             |                  |
+    Te4/0/20 (L2 Trunk)    Te4/0/21 (L2 Trunk)
+    VLANs: 101, 1301       VLANs: 101, 1301
+    STP: Designated FWD     STP: Designated FWD
+    >>> WILL BE SHUT <<<    STAYS UP (redundant)
+             |                  |
+    +--------+--------+    +---+-------------+
+    |   L2-DIST-1     |    |   L2-DIST-2     |
+    |   C9404R         |    |   C9404R         |
+    |   172.31.0.193   |    |   172.31.0.180   |
+    +--+--------+-----+    +--+---------+-----+
+       |        |              |         |
+    Te4/0/1  Te4/0/2        Te1/0/1   Te1/0/2     (trunks to access)
+       |        |              |         |
+    FS2_L2_9300-1/2           FS2_L2_9300-1/2      (legacy access)
+       |                         |
+    Spirent Receivers           Spirent Receivers
+
+  L2 HANDOFF TRAFFIC PATH (normal — dual active trunks):
+    Spirent (fabric FEs) -> VXLAN -> BC1/BC2 -> L2H-1
+      -> VXLAN decap -> VLAN 101/1301
+      -> Te4/0/20 trunk -> L2-DIST-1 -> L2_9300s -> Spirent Receiver
+      -> Te4/0/21 trunk -> L2-DIST-2 -> L2_9300s -> Spirent Receiver
+      (STP determines active forwarding path per VLAN)
+
+  L2 Handoff VLANs on L2H-1:
+    Vlan101  - 10.5.28.1/22  (BMS1 VRF, L2VNI IID 8188)
+    Vlan1301 - 10.5.20.1/22  (EUT VRF,  L2VNI IID 8190)
+
+  STP Configuration:
+    Root Bridge: FS2_L2H-1 for VLAN 101 and VLAN 1301
+    Te4/0/20: Designated Forwarding (cost 2000) to L2-DIST-1
+    Te4/0/21: Designated Forwarding (cost 2000) to L2-DIST-2
+    Trunk Encapsulation: 802.1Q
+    Trunk Allowed VLANs: 1-4094 (active: 1, 101, 1301)
+
+================================================================================
+SETUP
+================================================================================
+
+Morgan Stanley SDA Phase 2 Testbed - RTP S10-360, Row P, Racks 18-25
+
+ARCHITECTURE:
+- 4 Fabric Sites: FS1 (4 devices), FS2 (10 devices), DC1/FS4 (4), DC2/FS5 (4)
+- 3-Layer DMZ: Border Controllers -> EDMZ (VRF-aware) -> IDMZ (GRT)
+- 22 Catalyst Center managed devices (IOS-XE 17.15.4)
+- Catalyst Center 2.3.7.9-70301 (DC1 Active, DC2 Standby)
+- ISE 3.2-P7 (4 physical + 14 virtual PSNs)
+
+KEY DEVICES FOR THIS TEST:
+- PRIMARY DUT:      FS2_L2H-1  (C9404R,  172.31.0.194, admin1/CXlabs.123)
+- AFFECTED DIST:    L2-DIST-1  (C9404R,  172.31.0.193, admin/CXlabs.123)
+- REDUNDANT DIST:   L2-DIST-2  (C9404R,  172.31.0.180, admin/CXlabs.123)
+- FABRIC CHECK:     FS2_BC1    (C9606R,  172.31.2.0,   admin1/CXlabs.123)
+
+FAILURE TARGET:
+- Interface: TenGigabitEthernet4/0/20 on FS2_L2H-1
+- Type: Layer 2 Trunk (switchport mode trunk, 802.1Q)
+- Peer: L2-DIST-1 TenGigabitEthernet4/0/20
+- VLANs Active: 1, 101 (BMS1), 1301 (EUT)
+- STP Role: Designated Forwarding (L2H-1 is root)
+- Bandwidth: 10 Gbps
+
+REDUNDANT PATH:
+- Interface: TenGigabitEthernet4/0/21 on FS2_L2H-1
+- Type: Layer 2 Trunk (switchport mode trunk, 802.1Q)
+- Peer: L2-DIST-2 TenGigabitEthernet1/0/20
+- VLANs Active: 1, 101, 1301
+- STP Role: Designated Forwarding (L2H-1 is root)
+- Status: UP — provides failover path
+
+NOTE: These are independent L2 trunks, NOT LACP port-channels.
+STP (not LACP) provides the failover mechanism.
+
+SPIRENT TRAFFIC:
+- 440+ streams total (172 through L2 handoff)
+- L2 Handoff streams: BMS (VLAN 101), EUT (VLAN 1301)
+- Baseline: 0.000% packet loss required before failure
+- Convergence tool: Spirent PLA (http://spirent-pla.cisco.com)
+- EXPECTED: Packet loss during STP convergence, then recovery via L2-DIST-2
+
+NOTE ON CATALYST CENTER INVENTORY:
+Interface status displayed in Catalyst Center Provision > Inventory is NOT
+real-time. It reflects the data captured at the time of the last device
+synchronization cycle. CLI output from the device is the authoritative
+source for real-time interface status during rapid failure/recovery events.
+
+================================================================================
+PROCEDURE
+================================================================================
+
+PHASE 1: STEADY STATE BASELINE
+-------------------------------
+1.0  Clear syslog buffers on L2H-1, L2-DIST-1, and L2-DIST-2.
+
+1.1  Spirent: Verify 0.000% packet loss on all streams. Screenshot.
+
+1.2  Catalyst Center:
+       - Provision > Inventory > FS2_L2H_1: Reachable, Health >= 80%
+       - NOTE: Interface status reflects last sync, not real-time
+       - Assurance > Health: Network/Client Health
+       Screenshots.
+
+1.3  CLI on FS2_L2H-1 (172.31.0.194):
+       show version | include uptime
+       show interfaces TenGigabitEthernet4/0/20
+       show interfaces TenGigabitEthernet4/0/21
+       show interfaces trunk
+       show spanning-tree vlan 101
+       show spanning-tree vlan 1301
+       show mac address-table vlan 101
+       show mac address-table vlan 1301
+       show interfaces vlan 101
+       show interfaces vlan 1301
+       show etherchannel summary
+       show interfaces Port-channel40 | include line protocol|BW|5 minute
+       show interfaces Port-channel41 | include line protocol|BW|5 minute
+       show ip ospf neighbor
+       show bfd neighbors
+       show lisp session
+       show ip route summary
+       show cts role-based counters
+     Verify:
+       Te4/0/20 UP (trunk to L2-DIST-1)
+       Te4/0/21 UP (trunk to L2-DIST-2)
+       Both trunks in STP Designated Forwarding
+       MAC addresses learned on VLAN 101 and 1301
+       SVIs VLAN 101 + 1301 UP
+       Po40(RU) + Po41(RU)
+       OSPF FULL to both BC1 and BC2
+       BFD UP to both BCs
+       2 LISP sessions established
+
+1.4  CLI on L2-DIST-1 (172.31.0.193):
+       show version | include uptime
+       show interfaces TenGigabitEthernet4/0/20
+       show interfaces trunk
+       show spanning-tree vlan 101
+       show spanning-tree vlan 1301
+       show mac address-table vlan 101
+       show mac address-table vlan 1301
+       show cdp neighbors
+     Verify: Te4/0/20 UP, trunking, STP sees root via Te4/0/20
+
+1.5  CLI on L2-DIST-2 (172.31.0.180):
+       show version | include uptime
+       show interfaces TenGigabitEthernet1/0/20
+       show interfaces trunk
+       show spanning-tree vlan 101
+       show spanning-tree vlan 1301
+       show mac address-table vlan 101
+       show mac address-table vlan 1301
+       show cdp neighbors
+     Verify: Te1/0/20 UP, trunking, STP sees root via Te1/0/20
+
+1.6  CLI on FS2_BC1 (172.31.2.0) — fabric health:
+       show etherchannel 40 summary
+       show ip ospf neighbor | include 192.168.102.40
+       show lisp session | include 192.168.102.40
+       show bfd neighbors | include 192.168.40.0
+     Verify: OSPF FULL, LISP UP, BFD UP to L2H-1
+
+PHASE 2: FAILURE EVENT (Shutdown Te4/0/20 L2 Trunk)
+-----------------------------------------------------
+2.1  On FS2_L2H-1, shutdown the distribution trunk:
+       conf t
+       interface TenGigabitEthernet4/0/20
+       shutdown
+       end
+
+     Record timestamp of shutdown.
+
+2.2  IMMEDIATELY verify (within 5 seconds):
+       show interfaces Te4/0/20 | include line protocol
+       show interfaces Te4/0/21 | include line protocol
+       show interfaces trunk
+       show etherchannel summary
+       show ip ospf neighbor
+       show bfd neighbors
+       show lisp session
+     EXPECTED:
+       Te4/0/20: admin down, line protocol down
+       Te4/0/21: UP — redundant trunk to L2-DIST-2 active
+       Po40 + Po41: REMAIN UP (RU) — fabric completely unaffected
+       OSPF FULL to both BCs
+       BFD UP to both BCs
+       LISP 2/2 established
+
+2.3  Spirent convergence monitoring (3 minutes):
+     EXPECTED: Packet loss during STP convergence, then recovery
+     ACTION:
+       a. Watch Spirent GUI — note dead/dropped streams
+       b. Verify streams recover once STP converges via L2-DIST-2
+       c. After 3 minutes: STOP traffic
+       d. Export Spirent DB (.tcc)
+       e. Upload to PLA: http://spirent-pla.cisco.com
+       f. Download PLA Excel with convergence analysis
+       g. Record dead flows, flows with drops, MAX/MIN/AVG times
+
+2.4  CLI on L2H-1 during failure:
+       show interfaces TenGigabitEthernet4/0/20
+       show interfaces TenGigabitEthernet4/0/21
+       show interfaces trunk
+       show spanning-tree vlan 101
+       show spanning-tree vlan 1301
+       show mac address-table vlan 101
+       show mac address-table vlan 1301
+       show interfaces vlan 101
+       show interfaces vlan 1301
+       show etherchannel summary
+       show ip ospf neighbor
+       show bfd neighbors
+       show lisp session
+       show ip route summary
+       show cts role-based counters
+       show logging | include LINK|UPDOWN|LINEPROTO|STP
+     Verify:
+       Te4/0/20 admin down
+       Te4/0/21 UP (trunk to L2-DIST-2 absorbing traffic)
+       SVIs VLAN 101/1301 still UP
+       Fabric: Po40(RU), Po41(RU), OSPF FULL, BFD UP, LISP 2/2
+
+2.5  CLI on L2-DIST-1 during failure (AFFECTED):
+       show interfaces TenGigabitEthernet4/0/20
+       show interfaces trunk
+       show spanning-tree vlan 101
+       show spanning-tree vlan 1301
+       show mac address-table vlan 101
+       show mac address-table vlan 1301
+       show logging | include LINK|UPDOWN|LINEPROTO|STP
+     Verify: Te4/0/20 DOWN, STP root bridge lost, MACs aging
+
+2.6  CLI on L2-DIST-2 during failure (REDUNDANT — absorbing traffic):
+       show interfaces TenGigabitEthernet1/0/20
+       show interfaces trunk
+       show spanning-tree vlan 101
+       show spanning-tree vlan 1301
+       show mac address-table vlan 101
+       show mac address-table vlan 1301
+       show logging | include LINK|UPDOWN|LINEPROTO|STP
+     Verify: Te1/0/20 UP, trunking, STP may show new forwarding paths
+
+2.7  CLI on FS2_BC1 during failure — fabric health:
+       show etherchannel 40 summary
+       show ip ospf neighbor | include 192.168.102.40
+       show lisp session | include 192.168.102.40
+       show bfd neighbors | include 192.168.40.0
+     Verify: BC1 STILL sees L2H-1 — distribution failure is isolated.
+
+2.8  Catalyst Center during failure:
+       Provision > Inventory > FS2_L2H_1
+       EXPECTED: Still Reachable (fabric path unaffected)
+       NOTE: Interface status reflects last sync, not real-time
+       Screenshot.
+
+PHASE 3: RECOVERY (Restore Te4/0/20 L2 Trunk)
+-----------------------------------------------
+3.1  On FS2_L2H-1, restore the distribution trunk:
+       conf t
+       interface TenGigabitEthernet4/0/20
+       no shutdown
+       end
+
+     Record timestamp of restoration.
+
+3.2  Monitor Te4/0/20 link up + STP convergence:
+       show interfaces TenGigabitEthernet4/0/20 | include line protocol
+       show spanning-tree vlan 101 | include Te4/0/20
+     Check every 5 seconds for up to 60 seconds.
+     Record: link-up time, STP forwarding time.
+     STP convergence: 1-2s (RSTP) or ~30s (classic STP)
+
+3.3  Verify both trunks restored:
+       show interfaces trunk
+     EXPECTED: Both Te4/0/20 and Te4/0/21 active, VLANs 101/1301
+
+3.4  Spirent post-recovery: START traffic, clear counters, wait 60s.
+     Verify 0.000% loss on all streams. Screenshot.
+
+3.5  Full CLI on L2H-1:
+       (same commands as 1.3 + syslog filtered)
+     Compare ALL values to Phase 1 baseline.
+
+3.6  CLI on L2-DIST-1 post-recovery:
+       (same commands as 1.4 + syslog filtered)
+     Verify: trunk restored, STP forwarding, MACs relearned.
+
+3.7  CLI on L2-DIST-2 post-recovery:
+       (same commands as 1.5 + syslog filtered)
+     Verify: still trunking, STP stable.
+
+3.8  CLI on FS2_BC1 post-recovery — fabric health:
+       (same commands as 1.6)
+     Verify: fabric path to L2H-1 healthy (never went down).
+
+3.9  Catalyst Center post-recovery:
+       Provision > Inventory > FS2_L2H_1: Reachable, Health >= 80%
+       NOTE: Interface status reflects last sync, not real-time
+       Assurance > Health >= 80%
+       Screenshots.
+
+ITERATIONS: Repeat Phases 1-3 three times (Iter1, Iter2, Iter3).
+
+================================================================================
+PASS/FAIL CRITERIA
+================================================================================
+
+PASS:
+  [ ] Te4/0/20 goes DOWN when shut (EXPECTED)
+  [ ] Te4/0/21 REMAINS UP — redundant trunk to L2-DIST-2 (CRITICAL)
+  [ ] STP reconverges traffic via Te4/0/21 to L2-DIST-2
+  [ ] Convergence measured via Spirent PLA (MAX/MIN/AVG times)
+  [ ] Po40 + Po41 REMAIN UP during failure (CRITICAL — fabric isolated)
+  [ ] OSPF FULL to BOTH BCs during failure (CRITICAL)
+  [ ] BFD UP to both BCs during failure (CRITICAL)
+  [ ] LISP 2/2 sessions established during failure (CRITICAL)
+  [ ] SVIs VLAN 101/1301 remain UP on L2H-1 during failure
+  [ ] Catalyst Center: L2H-1 still Reachable during failure
+  [ ] Te4/0/20 restores after no shutdown
+  [ ] L2 trunk re-established (VLANs 101/1301 active)
+  [ ] STP converges to Forwarding on Te4/0/20
+  [ ] Spirent 0.000% loss after recovery
+  [ ] All metrics fully restored to Phase 1 baseline
+  [ ] Results consistent across 3 iterations (+/- 20%)
+
+FAIL:
+  [ ] Te4/0/21 goes DOWN during Te4/0/20 failure (distribution total loss)
+  [ ] Po40 or Po41 goes DOWN during failure (fabric disruption)
+  [ ] OSPF to either BC drops during failure (fabric disruption)
+  [ ] LISP sessions drop during failure (fabric disruption)
+  [ ] BFD to either BC drops during failure (fabric disruption)
+  [ ] STP does not reconverge via L2-DIST-2
+  [ ] SVIs VLAN 101/1301 go DOWN during failure
+  [ ] L2H-1 becomes Unreachable in Catalyst Center
+  [ ] Te4/0/20 fails to come UP after no shutdown
+  [ ] Trunk does not re-establish after recovery
+  [ ] STP does not converge to Forwarding
+  [ ] Permanent dead flows after recovery
+  [ ] Traffic does not restore to 0.000% after recovery
+  [ ] Metrics do not restore to baseline
+  [ ] Iteration variance > 20%
+
+================================================================================
+RESULT
+================================================================================
+
+Overall Result: _____________ (PASS / CONDITIONAL PASS / FAIL)
+
+Iteration 1:
+  Phase 1 (Baseline): _____ Phase 2 (Failure): _____ Phase 3 (Recovery): _____
+  STP Convergence Time: _____ sec  Dead Flows: _____  Max Loss: _____%
+
+Iteration 2:
+  Phase 1 (Baseline): _____ Phase 2 (Failure): _____ Phase 3 (Recovery): _____
+  STP Convergence Time: _____ sec  Dead Flows: _____  Max Loss: _____%
+
+Iteration 3:
+  Phase 1 (Baseline): _____ Phase 2 (Failure): _____ Phase 3 (Recovery): _____
+  STP Convergence Time: _____ sec  Dead Flows: _____  Max Loss: _____%
+
+Consistency Check:
+  All 3 iterations within +/- 20%: [ ] YES  [ ] NO
+  All 3 iterations PASS: [ ] YES  [ ] NO
+
+Notes:
+________________________________________________________________________
+________________________________________________________________________
+
+Completed by: _________________ Date: __________ Time: __________
+
+================================================================================
+TECHNICAL NOTES
+================================================================================
+
+1. L2 TRUNK vs PORT-CHANNEL: Unlike TC 07-01 through 07-03 (which test
+   LACP Port-Channel links to Border Controllers), TC 07-04 tests
+   standalone L2 trunk interfaces. Te4/0/20 and Te4/0/21 are independent
+   switchport trunk interfaces — no LACP, no bundling. STP (not LACP)
+   provides the failover mechanism.
+
+2. DUAL DISTRIBUTION TRUNKS: Both Te4/0/20 (to L2-DIST-1) and Te4/0/21
+   (to L2-DIST-2) are active and trunking VLANs 101/1301. FS2_L2H-1 is
+   the STP root bridge for both VLANs. STP determines which trunk path
+   each VLAN uses to reach downstream access switches. When Te4/0/20
+   goes down, STP reconverges all traffic through Te4/0/21 via L2-DIST-2.
+
+3. STP CONVERGENCE TIME: The convergence depends on the STP mode:
+   - Rapid PVST+ (RSTP): 1-2 seconds (immediate proposal/agreement)
+   - Classic PVST+: ~30 seconds (Listening 15s + Learning 15s)
+   The Spirent PLA analysis will measure the actual convergence time.
+   This is the primary metric for TC 07-04.
+
+4. SVI BEHAVIOR: The L2H-1 SVIs (VLAN 101 and VLAN 1301) are L3
+   interfaces. They remain UP even when one trunk goes down, because
+   the VLAN still has an active L2 port (Te4/0/21). LISP and VXLAN
+   continue to deliver traffic to the SVI — STP determines the L2
+   egress path.
+
+5. FABRIC ISOLATION: The distribution-side failure is completely
+   isolated from the fabric side. The L2 trunks are Layer 2 interfaces;
+   OSPF, BFD, and LISP run over the Layer 3 Port-Channel interfaces
+   (Po40/Po41). There is no protocol dependency between Te4/0/20 and
+   the fabric underlay. This isolation is architectural.
+
+6. MAC ADDRESS BEHAVIOR: When Te4/0/20 goes down, L2-DIST-1 loses
+   the SVI MACs from L2H-1 (0000.0c9f.f8b7 for VLAN 101,
+   0000.0c9f.f457 for VLAN 1301). These age out per the MAC aging
+   timer (default 300s). L2-DIST-2 already has these MACs learned
+   via Te1/0/20, so endpoints reachable via L2-DIST-2 are unaffected
+   after STP convergence.
+
+7. INTER-DISTRIBUTION CONNECTIVITY: If L2-DIST-1 and L2-DIST-2 have
+   direct trunk links between them, STP may provide an alternate path
+   for endpoints behind L2-DIST-1 to reach L2H-1 via L2-DIST-2. This
+   would reduce the impact further. The CLI evidence will show the
+   actual STP topology and convergence behavior.
+
+8. RECOVERY SEQUENCE: After "no shutdown" on Te4/0/20:
+   - Physical link up: 1-2 seconds (SFP-10GBase-SR optics)
+   - 802.1Q trunk negotiation: immediate
+   - STP convergence: 1-2s (RSTP) or ~30s (classic STP)
+   - MAC learning: immediate once STP reaches Forwarding
+   - Total recovery: 5-35 seconds depending on STP mode
+
+9. PHASE 07 COMPLETE SUITE: TC 07-04 completes the L2 Border negative
+   testing suite. Together, these tests cover all failure directions:
+     07-01: Po member link failure (single LACP member, Po stays up)
+     07-02: Complete Po40 failure (BC1 path down, BC2 failover)
+     07-03: Complete Po41 failure (BC2 path down, BC1 failover)
+     07-04: Distribution trunk failure (L2-DIST-1 down, L2-DIST-2 failover)
+   This provides comprehensive coverage of the L2 Border failure domain
+   in both the fabric-facing and legacy-facing directions.
+
+================================================================================
+DELIVERABLES
+================================================================================
+
+Per Iteration (x3):
+
+CLI Outputs (8 files per iteration, 4 devices):
+  [ ] Iter{n}_Pre_L2H1_Baseline.txt
+  [ ] Iter{n}_Pre_DIST1_Baseline.txt
+  [ ] Iter{n}_Pre_DIST2_Baseline.txt
+  [ ] Iter{n}_Pre_BC1_Health.txt
+  [ ] Iter{n}_During_L2H1_Failure.txt
+  [ ] Iter{n}_During_DIST1_Status.txt
+  [ ] Iter{n}_During_DIST2_Status.txt
+  [ ] Iter{n}_During_BC1_Health.txt
+  [ ] Iter{n}_Post_L2H1_Validation.txt
+  [ ] Iter{n}_Post_DIST1_Validation.txt
+  [ ] Iter{n}_Post_DIST2_Validation.txt
+  [ ] Iter{n}_Post_BC1_Health.txt
+
+Screenshots (per iteration):
+  Phase 1:
+    [ ] Iter{n}_Pre_Spirent_Baseline.png
+    [ ] Iter{n}_Pre_CC_L2H1_Health.png
+    [ ] Iter{n}_Pre_CC_Health.png
+  Phase 2:
+    [ ] Iter{n}_During_Spirent_Convergence.png
+    [ ] Iter{n}_During_CC_Status.png
+    [ ] Iter{n}_PLA_Analysis.png
+  Phase 3:
+    [ ] Iter{n}_Post_Spirent_Restored.png
+    [ ] Iter{n}_Post_CC_L2H1_Health.png
+    [ ] Iter{n}_Post_CC_Health.png
+
+Spirent Convergence Analysis (MANDATORY for this test):
+  [ ] Iter{n}_During_Spirent.tcc
+  [ ] Iter{n}_PLA_Convergence.xlsx
+
+Summary:
+  [ ] TC-07-04_Test_Case_Report.docx
+  [x] TC-07-04_CXTM.txt (this file)
+
+Automation:
+  [x] run_tc_07-04.py (Python/Netmiko, 3-phase, 3-iteration)
+
+Total Evidence: ~36 CLI files + ~27 screenshots + PLA analysis + report
+
+================================================================================
+END OF TC 07-04
+================================================================================

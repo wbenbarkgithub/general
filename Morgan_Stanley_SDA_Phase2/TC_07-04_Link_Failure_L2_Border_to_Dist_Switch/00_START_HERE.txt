@@ -1,0 +1,276 @@
+================================================================================
+TC 07-04: Link Failure from L2 Border to Distribution Switch
+QUICK START GUIDE - LEGACY L2 SITE WITH STP FAILOVER
+================================================================================
+
+TEST OVERVIEW:
+--------------
+TC 07-04 completes the Phase 07 L2 Border test suite by validating LEGACY LAYER 2
+FAILOVER using Spanning Tree Protocol (STP). This is fundamentally different from
+TC 07-02/07-03 which test Layer 3 OSPF/ECMP failover.
+
+  TC 07-02/07-03: Shut Po40/Po41 → OSPF/ECMP failover (hitless, <1 second)
+  TC 07-04:       Shut Te4/0/20  → STP failover (measurable loss, 2-30 seconds)
+
+TOPOLOGY:
+---------
+  FS2_L2H-1 (172.31.0.194) - L2 Border Device
+      ├── Te4/0/20 --> L2-DIST-1 (172.31.0.193) [WILL BE SHUT DOWN]
+      └── Te4/0/21 --> L2-DIST-2 (172.31.0.180) [STAYS UP - Redundant Path]
+
+  VLANs on Both Trunks: 101 (BMS), 1301 (EUT)
+  STP Root: FS2_L2H-1 for both VLANs
+
+  Fabric Side (MUST remain stable):
+      ├── Po40 --> FS2_BC1 (172.31.2.0) [Monitor for stability]
+      └── Po41 --> FS2_BC2 (172.31.2.2) [Monitor for stability]
+
+EXPECTED RESULT:
+----------------
+  - STP Convergence: 2-30 seconds (standard STP timers)
+  - Packet Loss: <5% (measurable during STP transition, NOT hitless)
+  - Traffic shifts to Te4/0/21 via L2-DIST-2
+  - Fabric side (Po40/Po41, OSPF, LISP) UNAFFECTED
+
+COMPARISON TO OTHER TESTS:
+---------------------------
+  TC 07-02/07-03 (Layer 3):  <1 second convergence, <1% loss (hitless ECMP)
+  TC 07-04 (Layer 2):        2-30 second convergence, <5% loss (STP reconvergence)
+
+  This is EXPECTED BEHAVIOR - Layer 2 STP is inherently slower than Layer 3 OSPF/ECMP.
+
+================================================================================
+QUICK START - 3 STEPS TO RUN THE TEST
+================================================================================
+
+STEP 1: PREREQUISITES (5 minutes)
+----------------------------------
+✓ Verify devices reachable:
+    FS2_L2H-1:  ssh admin1@172.31.0.194 (or admin@172.31.0.194)
+    L2-DIST-1:  ssh admin@172.31.0.193   [LOCAL AUTH ONLY, NO TACACS]
+    L2-DIST-2:  ssh admin@172.31.0.180   [LOCAL AUTH ONLY, NO TACACS]
+    FS2_BC1:    ssh admin1@172.31.2.0
+
+✓ Verify L2 trunk topology:
+    show interface Te4/0/20 | include line protocol   # Should be UP
+    show interface Te4/0/21 | include line protocol   # Should be UP
+    show spanning-tree vlan 101                       # L2H-1 should be root
+
+✓ Install netmiko:
+    pip3 install netmiko
+
+✓ Open Spirent GUI (172.31.0.22:8088) and verify traffic flowing
+✓ Open Catalyst Center and verify device health
+
+CRITICAL NOTES:
+  - L2-DIST-1 and L2-DIST-2 are LEGACY devices
+  - They use LOCAL auth ONLY (admin/CXlabs.123)
+  - They are NOT in ISE or TACACS
+  - Script handles this automatically
+
+STEP 2: RUN ITERATION 1 (10-15 minutes)
+----------------------------------------
+cd /path/to/TC_07-04_Link_Failure_L2_Border_to_Dist_Switch
+chmod +x run_tc_07-04.py
+python3 run_tc_07-04.py --iter 1
+
+The script will:
+  1. Collect baseline CLI from L2H-1, DIST-1, DIST-2, BC1 → Iter1_CLI/
+  2. PAUSE and ask you to take Spirent screenshots
+  3. Shut down Te4/0/20 on FS2_L2H-1
+  4. PAUSE and ask you to capture STP convergence screenshots
+  5. Wait 10 seconds for STP reconvergence (longer than OSPF tests)
+  6. Collect during-failure CLI
+  7. Restore Te4/0/20 (no shutdown)
+  8. PAUSE and ask you to capture recovery screenshots
+  9. Wait 15 seconds for STP reconvergence
+  10. Collect post-recovery CLI
+
+Manual Actions Required:
+  ⚠ Take Spirent screenshots at each PAUSE (baseline, failure, recovery)
+  ⚠ Monitor STP convergence time (expect 2-30 seconds)
+  ⚠ Take Catalyst Center screenshots
+  ⚠ Save screenshots to Images/Iteration1/ folder
+
+STEP 3: RUN ITERATIONS 2 & 3 (20-30 minutes)
+---------------------------------------------
+python3 run_tc_07-04.py --iter 2   # Save screenshots to Images/Iteration2/
+python3 run_tc_07-04.py --iter 3   # Save screenshots to Images/Iteration3/
+
+Purpose: Validate ±20% consistency across 3 iterations (Spirent best practice)
+
+STEP 4: ANALYZE RESULTS (10 minutes)
+-------------------------------------
+Review Spirent PLA metrics:
+  - STP Convergence Time: [Record value, expect 2-30 seconds]
+  - Packet Loss: [Record value, expect <5%]
+  - Dead flows: [Record value]
+
+Compare to TC 07-02/07-03:
+  - TC 07-04 will be SLOWER (STP timers vs. OSPF/ECMP)
+  - TC 07-04 will have MORE packet loss (STP reconvergence vs. hitless L3)
+  - This is EXPECTED and CORRECT behavior
+
+Validate fabric side stability:
+  - Po40/Po41 should remain UP throughout test
+  - OSPF neighbors should remain FULL
+  - LISP sessions should remain UP
+  - BFD should remain UP
+
+================================================================================
+KEY DIFFERENCES: TC 07-02/07-03 vs TC 07-04
+================================================================================
+
+                    TC 07-02/07-03          TC 07-04
+                    ==============          ========
+Failed Path:        Po40/Po41 (L3)          Te4/0/20 (L2 trunk)
+Redundant Path:     Po41/Po40 (L3 ECMP)     Te4/0/21 (L2 trunk)
+Shutdown Target:    Port-channel            TenGigabitEthernet
+Failover Protocol:  OSPF + LISP             STP
+Convergence Time:   <1 second               2-30 seconds
+Packet Loss:        <1% (hitless)           <5% (measurable)
+Failure Domain:     SDA Fabric (BCs)        Legacy L2 Site (DIST)
+Authentication:     TACACS + local          Local only (DIST)
+Devices Tested:     3 (L2H-1, BC1, BC2)     4 (L2H-1, DIST-1, DIST-2, BC1)
+
+Both tests validate:
+  ✓ Redundancy works correctly
+  ✓ Traffic shifts to backup path
+  ✓ Recovery completes successfully
+  ✓ No device crashes
+
+But mechanisms are fundamentally different:
+  - TC 07-02/07-03: Layer 3 routing (fast, hitless)
+  - TC 07-04: Layer 2 switching (slower, disruptive)
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+ISSUE: Cannot connect to L2-DIST-1 or L2-DIST-2
+FIX:   These are LEGACY devices with LOCAL auth only (no TACACS)
+       Credentials: admin/CXlabs.123 (hardcoded in script)
+       Verify: ssh admin@172.31.0.193 and ssh admin@172.31.0.180
+
+ISSUE: STP convergence >50 seconds
+FIX:   Check STP timers: show spanning-tree vlan 101
+       Verify FS2_L2H-1 is root: show spanning-tree root
+       Consider this may indicate STP misconfiguration
+       Standard STP: ~30 seconds, RSTP: ~2 seconds
+
+ISSUE: Packet loss >10%
+FIX:   This may indicate STP issue or traffic overload
+       Verify Te4/0/21 capacity sufficient for all traffic
+       Check for STP loops or misconfigurations
+       Review MAC address table: show mac address-table vlan 101
+
+ISSUE: Fabric side impacted (Po40 or Po41 flaps)
+FIX:   STOP TEST - This is a CRITICAL issue
+       Te4/0/20 shutdown should NOT affect Po40/Po41
+       Check for shared physical resources (linecards, transceivers)
+       Review logs: show logging | include Te4/0/20|Po40|Po41
+
+ISSUE: Iter1 crashes at Step 2.2 (TACACS reconnect)
+FIX:   Use continue_iter1.py to resume from Step 2.2
+       Or manually complete Iter1 with local credentials
+       This is a KNOWN ISSUE, script has been updated with fallback
+
+ISSUE: Catalyst Center raises "Interface Down" alert
+FIX:   This is EXPECTED behavior
+       CC monitors interface state and raises alerts for link down
+       CC distinguishes admin-shutdown from physical fault
+       No remediation needed, document that alert is expected
+
+ISSUE: No traffic shift to L2-DIST-2 (100% loss)
+FIX:   Verify Te4/0/21 is UP: show interface Te4/0/21
+       Check STP state on DIST-2: show spanning-tree vlan 101 1301
+       Verify MAC address tables: show mac address-table vlan 101
+       Check VLAN pruning: show interfaces trunk
+
+================================================================================
+SUCCESS CRITERIA
+================================================================================
+
+PASS if ALL criteria met:
+  ✓ 3 iterations completed successfully
+  ✓ STP convergence: <50 seconds (target <30 seconds)
+  ✓ Packet loss: <10% (target <5%)
+  ✓ Traffic shifts to Te4/0/21 (L2-DIST-2)
+  ✓ Fabric side stable (Po40/Po41, OSPF, LISP, BFD unaffected)
+  ✓ Results within ±20% across iterations
+  ✓ No device crashes or protocol flaps
+
+DELIVERABLES:
+  ✓ CLI evidence: Iter1_CLI/, Iter2_CLI/, Iter3_CLI/
+  ✓ Spirent screenshots: Images/ folder (18+ screenshots)
+  ✓ CXTM results: TC-07-04_CXTM_Results.txt
+
+IMPORTANT EXPECTATIONS:
+  ✗ This test is NOT hitless (unlike TC 07-02/07-03)
+  ✗ STP convergence takes 2-30 seconds (vs. <1 second OSPF)
+  ✗ Packet loss is measurable (vs. near-zero OSPF)
+  ✓ This is EXPECTED BEHAVIOR for Layer 2 STP failover
+
+================================================================================
+COMPLETE PHASE 07 TEST SUITE
+================================================================================
+
+Phase 07 validates L2 Border resilience across multiple failure scenarios:
+
+TC 07-01: Link Failure L2 Border Po Member
+  - LACP member shutdown (Te4/0/1)
+  - Po40 stays UP with reduced bandwidth
+  - Result: 0.000% packet loss, LACP rebundle <30 seconds
+
+TC 07-02 (Original): Link Failure L2 Border Complete Po
+  - Po40 complete shutdown (both members down)
+  - Single-homed topology (no redundancy)
+  - Result: ~2 minute outage, significant packet loss
+  - Purpose: Baseline to measure improvement with dual-homing
+
+TC 07-02 Retest: Dual-Homed Po40 Failure
+  - Po40 shutdown, Po41 provides redundancy to BC2
+  - Result: <1 second convergence, <1% packet loss
+  - Improvement: >99% vs. original
+
+TC 07-03: Dual-Homed Po41 Failure
+  - Po41 shutdown, Po40 provides redundancy to BC1
+  - Result: <1 second convergence, <1% packet loss
+  - Validates bidirectional redundancy with TC 07-02 Retest
+
+TC 07-04: Link Failure to Distribution Switch (THIS TEST)
+  - Te4/0/20 trunk shutdown, Te4/0/21 provides redundancy
+  - Result: 2-30 second STP convergence, <5% packet loss
+  - Validates legacy L2 site isolation from SDA fabric
+
+COMPLETE COVERAGE:
+  ✅ LACP member resilience (TC 07-01)
+  ✅ SDA fabric ECMP resilience, bidirectional (TC 07-02 Retest + TC 07-03)
+  ✅ Legacy L2 site STP resilience (TC 07-04)
+
+================================================================================
+NEED MORE HELP?
+================================================================================
+
+Full Documentation:
+  - README.md - Comprehensive usage guide with topology details
+  - TC-07-04_Execution_Plan.txt - Step-by-step execution workflow
+  - TC-07-04_CXTM.txt - Complete test case specification
+
+Related Test Cases:
+  - TC 07-01: Single member link failure (LACP)
+  - TC 07-02 Retest: Dual-homed Po40 failure (L3 ECMP)
+  - TC 07-03: Dual-homed Po41 failure (L3 ECMP)
+
+GitHub Repository:
+  https://github.com/wbenbarkgithub/general/tree/main/Morgan_Stanley_SDA_Phase2
+
+Special Notes for TC 07-04:
+  - Distribution switches use LOCAL auth only (no TACACS/ISE)
+  - STP convergence is SLOWER than OSPF (expected)
+  - Packet loss is MEASURABLE (expected, not a failure)
+  - Fabric side MUST remain stable (critical validation point)
+
+================================================================================
+END OF QUICK START GUIDE
+================================================================================
