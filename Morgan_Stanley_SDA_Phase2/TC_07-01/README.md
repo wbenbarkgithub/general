@@ -4,7 +4,8 @@
 **Phase:** 07 - Negative Testing - Layer 2 Border  
 **CXTM ID:** 1872836  
 **Author:** wbenbark  
-**Date:** April 2026
+**Date:** April 2026  
+**Version:** 2.0 (Updated April 8, 2026)
 
 ## Overview
 
@@ -32,10 +33,13 @@ Interactive Python script that automates TC 07-01 test execution with built-in p
 
 **Features:**
 - 3-phase workflow (Baseline → Failure → Recovery)
-- Automated CLI collection from both L2H-1 and BC1
+- Automated CLI collection from L2H-1, BC1, and both L2 9300 switches
+- Multicast validation (PIM, mroute, MFIB, IGMP snooping) across all phases
+- Alternate credential fallback (dnac_admin_tacacs) for BC1
 - Interactive prompts for Spirent and Catalyst Center screenshots
 - Iteration support (run 3 times for consistency validation)
 - Real-time LACP rebundle monitoring
+- Robust error handling with safe disconnect and read timeouts
 - Automatic file organization per iteration
 
 **Requirements:**
@@ -57,15 +61,23 @@ python3 run_tc_07-01.py --iter 3
 
 **Device Access:**
 - FS2_L2H-1: 172.31.0.194 (admin1/CXlabs.123)
-- FS2_BC1: 172.31.2.0 (admin1/CXlabs.123)
+- FS2_BC1: 172.31.2.0 (admin1/CXlabs.123, fallback: dnac_admin_tacacs)
+- FS2_L2_9300-1: 172.31.0.179 (admin/CXlabs.123)
+- FS2_L2_9300-2: 172.31.0.178 (admin/CXlabs.123)
 
 **Output Files (per iteration):**
-- `Iter{n}_Pre_L2H1_Baseline.txt` - Phase 1 L2H-1 CLI baseline
-- `Iter{n}_Pre_BC1_Baseline.txt` - Phase 1 BC1 CLI baseline
-- `Iter{n}_During_L2H1_Failure.txt` - Phase 2 L2H-1 during failure
-- `Iter{n}_During_BC1_Status.txt` - Phase 2 BC1 during failure
-- `Iter{n}_Post_L2H1_Validation.txt` - Phase 3 L2H-1 post-recovery
-- `Iter{n}_Post_BC1_Validation.txt` - Phase 3 BC1 post-recovery
+- `Iter{n}_Pre_L2H1_Baseline.txt` - Phase 1 L2H-1 CLI baseline (incl. multicast)
+- `Iter{n}_Pre_BC1_Baseline.txt` - Phase 1 BC1 CLI baseline (incl. multicast)
+- `Iter{n}_Pre_L2_9300-1_Baseline.txt` - Phase 1 L2 9300-1 baseline (STP, IGMP, trunks)
+- `Iter{n}_Pre_L2_9300-2_Baseline.txt` - Phase 1 L2 9300-2 baseline (STP, IGMP, trunks)
+- `Iter{n}_During_L2H1_Failure.txt` - Phase 2 L2H-1 during failure (incl. multicast)
+- `Iter{n}_During_BC1_Status.txt` - Phase 2 BC1 during failure (incl. multicast)
+- `Iter{n}_During_L2_9300-1_Status.txt` - Phase 2 L2 9300-1 during failure (STP, syslog)
+- `Iter{n}_During_L2_9300-2_Status.txt` - Phase 2 L2 9300-2 during failure (STP, syslog)
+- `Iter{n}_Post_L2H1_Validation.txt` - Phase 3 L2H-1 post-recovery (incl. multicast)
+- `Iter{n}_Post_BC1_Validation.txt` - Phase 3 BC1 post-recovery (incl. multicast)
+- `Iter{n}_Post_L2_9300-1_Validation.txt` - Phase 3 L2 9300-1 post-recovery
+- `Iter{n}_Post_L2_9300-2_Validation.txt` - Phase 3 L2 9300-2 post-recovery
 
 ### 2. `TC-07-01_Execution_Plan.txt` (Manual Execution Guide)
 
@@ -93,33 +105,40 @@ Comprehensive test case documentation including:
 ### Phase 1: Steady State Baseline
 1. Verify Spirent 0.000% packet loss (GATE - must pass)
 2. Verify Catalyst Center L2H-1 health ≥ 80%
-3. Collect CLI baseline from L2H-1 and BC1
-4. Validate Po40 UP with both members bundled
+3. Collect CLI baseline from L2H-1 and BC1 (including multicast: PIM, mroute, MFIB, IGMP)
+4. Collect CLI baseline from FS2_L2_9300-1 and FS2_L2_9300-2 (STP, trunks, MAC, IGMP snooping)
+5. Validate Po40 UP with both members bundled
 
 ### Phase 2: Failure Event
 1. Shutdown `TenGigabitEthernet4/0/1` on FS2_L2H-1
 2. Verify Po40 stays UP with single member (Te4/0/2)
 3. Monitor Spirent for 3 minutes (expect 0.000% loss)
-4. Collect during-failure CLI evidence
-5. Verify LISP sessions and OSPF adjacency remain stable
+4. Collect during-failure CLI from L2H-1 and BC1 (including multicast state)
+5. Collect during-failure CLI from L2 9300 switches (STP topology changes, syslog)
+6. Verify LISP sessions, OSPF adjacency, and multicast forwarding remain stable
 
 ### Phase 3: Recovery
 1. Restore `TenGigabitEthernet4/0/1` (no shutdown)
 2. Verify LACP rebundle (expect < 30 seconds)
 3. Validate Spirent 0.000% loss
-4. Collect post-recovery CLI evidence
+4. Collect post-recovery CLI from all 4 devices (including multicast restoration)
 5. Compare all metrics to Phase 1 baseline
 
 ## Expected Results
 
 **PASS Criteria:**
 - ✅ Po40 remains UP during member shutdown (bandwidth reduces 20G → 10G)
-- ✅ Spirent 0.000% packet loss (or ≤ 0.001% transient micro-loss)
+- ✅ Spirent 0.000% packet loss (or ≤ 0.001% transient micro-loss) — unicast + multicast
 - ✅ Zero dead flows
 - ✅ LISP sessions remain established
 - ✅ OSPF adjacency stable (no flap)
+- ✅ Multicast: mroute 225.1.1.1 present in VRF BMS1 during failure
+- ✅ Multicast: MFIB HW counters incrementing (forwarding active)
+- ✅ Multicast: PIM neighbors UP during failure
+- ✅ Multicast: IGMP snooping group 225.1.1.1 on VLAN 101
+- ✅ L2 switches: STP/IGMP snooping state captured across all phases
 - ✅ LACP rebundle < 30 seconds after restoration
-- ✅ All metrics restored to baseline
+- ✅ All metrics (including multicast) restored to baseline
 - ✅ Results consistent across 3 iterations (±20%)
 
 ## Quick Start
@@ -161,7 +180,7 @@ ssh admin1@172.31.2.0    # FS2_BC1
 ## Prerequisites
 
 - ✅ VPN connected to lab (172.31.x.x reachable)
-- ✅ SSH access to FS2_L2H-1 and FS2_BC1
+- ✅ SSH access to FS2_L2H-1, FS2_BC1, FS2_L2_9300-1, and FS2_L2_9300-2
 - ✅ Spirent GUI open (172.31.0.101)
 - ✅ Catalyst Center GUI open (https://172.31.229.151)
 - ✅ Spirent baseline: 0.000% loss (MANDATORY GATE)
@@ -186,6 +205,17 @@ ssh admin1@172.31.2.0    # FS2_BC1
 - Hash redistribution to surviving member (near-instantaneous)
 - No OSPF flap (Po40 stays UP)
 - No LISP session impact (TCP sessions remain established)
+
+**Multicast Validation (v2.0):**
+- PIM neighbors in VRF BMS1 validated across all phases
+- mroute 225.1.1.1 presence confirmed during failure
+- MFIB hardware counters checked for active forwarding
+- IGMP snooping groups on VLAN 101 (BMS1) and VLAN 1301 (EUT)
+
+**L2 Switch Validation (v2.0):**
+- FS2_L2_9300-1 and FS2_L2_9300-2 STP topology change detection
+- MAC address table monitoring across failure/recovery
+- Syslog capture (LINK/UPDOWN/LINEPROTO/STP/TCN events)
 
 ## Related Test Cases
 

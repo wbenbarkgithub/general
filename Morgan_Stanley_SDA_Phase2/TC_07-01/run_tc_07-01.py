@@ -37,6 +37,33 @@ BC1 = {
     'name': 'FS2_BC1',
 }
 
+BC1_ALT = {
+    'device_type': 'cisco_ios',
+    'host': '172.31.2.0',
+    'username': 'dnac_admin_tacacs',
+    'password': 'CXlabs.123',
+    'timeout': 30,
+    'name': 'FS2_BC1',
+}
+
+L2_9300_1 = {
+    'device_type': 'cisco_ios',
+    'host': '172.31.0.179',
+    'username': 'admin',
+    'password': 'CXlabs.123',
+    'timeout': 30,
+    'name': 'FS2_L2_9300-1',
+}
+
+L2_9300_2 = {
+    'device_type': 'cisco_ios',
+    'host': '172.31.0.178',
+    'username': 'admin',
+    'password': 'CXlabs.123',
+    'timeout': 30,
+    'name': 'FS2_L2_9300-2',
+}
+
 # =============================================================================
 # HELPERS
 # =============================================================================
@@ -61,22 +88,56 @@ def banner(text, char='='):
 def sub_banner(text):
     print(f"\n--- {text} ---\n")
 
-def connect(device_info):
+def safe_disconnect(conn):
+    if conn is None:
+        return
+    try:
+        conn.disconnect()
+    except Exception:
+        pass
+
+def connect(device_info, try_alt=None):
     """Connect to device, return netmiko connection."""
     name = device_info['name']
     host = device_info['host']
     print(f"  Connecting to {name} ({host})...", end=' ', flush=True)
     dev = {k: v for k, v in device_info.items() if k != 'name'}
-    conn = ConnectHandler(**dev)
-    prompt = conn.find_prompt()
-    print(f"OK [{prompt}]")
-    return conn
+    try:
+        conn = ConnectHandler(**dev)
+        prompt = conn.find_prompt()
+        print(f"OK [{prompt}]")
+        return conn
+    except Exception as e:
+        if try_alt:
+            print(f"FAILED, trying {try_alt['username']}...")
+            print(f"  Connecting to {name} ({host}) with {try_alt['username']}...", end=' ', flush=True)
+            dev_alt = {k: v for k, v in try_alt.items() if k != 'name'}
+            conn = ConnectHandler(**dev_alt)
+            prompt = conn.find_prompt()
+            print(f"OK [{prompt}]")
+            return conn
+        else:
+            raise
 
 def run_and_print(conn, cmd):
     """Run command, print output, return output."""
-    output = conn.send_command(cmd)
+    try:
+        output = conn.send_command(cmd, read_timeout=30)
+    except Exception as e:
+        output = f"ERROR running command: {e}"
     print(output)
     return output
+
+def collect_commands(device_info, commands, filename, try_alt=None):
+    """Connect to device, run commands, save to file, disconnect."""
+    conn = connect(device_info, try_alt=try_alt)
+    output_all = ""
+    for cmd, label in commands:
+        sub_banner(f"{label}: {cmd}")
+        out = run_and_print(conn, cmd)
+        output_all += f"\n--- {label}: {cmd} ---\n{out}\n"
+    safe_disconnect(conn)
+    save_output(filename, output_all)
 
 def save_output(filename, content):
     """Save content to file in the CLI directory."""
@@ -136,6 +197,16 @@ def phase1(iter_dir, iteration):
         ("show lisp session", "LISP SESSIONS"),
         ("show ip route summary", "ROUTE SUMMARY"),
         ("show cts role-based counters", "CTS COUNTERS"),
+        # -- Multicast --
+        ("show ip multicast", "MULTICAST GLOBAL STATUS"),
+        ("show ip pim vrf BMS1 neighbor", "PIM NEIGHBORS (VRF BMS1)"),
+        ("show ip pim vrf BMS1 rp mapping", "PIM RP MAPPING (VRF BMS1)"),
+        ("show ip mroute vrf BMS1 225.1.1.1", "MROUTE 225.1.1.1 (VRF BMS1)"),
+        ("show ip mroute vrf BMS1 summary", "MROUTE SUMMARY (VRF BMS1)"),
+        ("show ip mfib vrf BMS1 225.1.1.1", "MFIB 225.1.1.1 HW COUNTERS (VRF BMS1)"),
+        ("show ip igmp snooping groups vlan 101", "IGMP SNOOPING VLAN 101 (BMS1)"),
+        ("show ip igmp snooping groups vlan 1301", "IGMP SNOOPING VLAN 1301 (EUT)"),
+        ("show ip igmp snooping vlan 101", "IGMP SNOOPING CONFIG VLAN 101"),
     ]
 
     output_all = ""
@@ -144,7 +215,7 @@ def phase1(iter_dir, iteration):
         out = run_and_print(conn, cmd)
         output_all += f"\n--- {label}: {cmd} ---\n{out}\n"
 
-    conn.disconnect()
+    safe_disconnect(conn)
     save_output(os.path.join(iter_dir, f"Iter{iteration}_Pre_L2H1_Baseline.txt"), output_all)
 
     # ---- Step 1.4: BC1 CLI Baseline ----
@@ -159,6 +230,9 @@ def phase1(iter_dir, iteration):
         ("show ip ospf neighbor", "OSPF NEIGHBORS"),
         ("show ip bgp summary", "BGP SUMMARY"),
         ("show lisp session", "LISP SESSIONS"),
+        # -- Multicast --
+        ("show ip mroute vrf BMS1 225.1.1.1", "MROUTE 225.1.1.1 (VRF BMS1)"),
+        ("show ip pim vrf BMS1 neighbor", "PIM NEIGHBORS (VRF BMS1)"),
     ]
 
     output_all = ""
@@ -167,8 +241,36 @@ def phase1(iter_dir, iteration):
         out = run_and_print(conn, cmd)
         output_all += f"\n--- {label}: {cmd} ---\n{out}\n"
 
-    conn.disconnect()
+    safe_disconnect(conn)
     save_output(os.path.join(iter_dir, f"Iter{iteration}_Pre_BC1_Baseline.txt"), output_all)
+
+    # ---- Step 1.5: FS2_L2_9300-1 CLI Baseline ----
+    banner("STEP 1.5: CLI BASELINE - FS2_L2_9300-1 (172.31.0.179)", '-')
+    collect_commands(L2_9300_1, [
+        ("show version | include uptime", "UPTIME"),
+        ("show interfaces trunk", "ALL TRUNKS"),
+        ("show spanning-tree vlan 101", "STP VLAN 101"),
+        ("show spanning-tree vlan 1301", "STP VLAN 1301"),
+        ("show mac address-table vlan 101", "MAC TABLE VLAN 101"),
+        ("show mac address-table vlan 1301", "MAC TABLE VLAN 1301"),
+        ("show cdp neighbors", "CDP NEIGHBORS"),
+        ("show ip igmp snooping groups vlan 101", "IGMP SNOOPING VLAN 101 (BMS1)"),
+        ("show ip igmp snooping groups vlan 1301", "IGMP SNOOPING VLAN 1301 (EUT)"),
+    ], os.path.join(iter_dir, f"Iter{iteration}_Pre_L2_9300-1_Baseline.txt"))
+
+    # ---- Step 1.6: FS2_L2_9300-2 CLI Baseline ----
+    banner("STEP 1.6: CLI BASELINE - FS2_L2_9300-2 (172.31.0.178)", '-')
+    collect_commands(L2_9300_2, [
+        ("show version | include uptime", "UPTIME"),
+        ("show interfaces trunk", "ALL TRUNKS"),
+        ("show spanning-tree vlan 101", "STP VLAN 101"),
+        ("show spanning-tree vlan 1301", "STP VLAN 1301"),
+        ("show mac address-table vlan 101", "MAC TABLE VLAN 101"),
+        ("show mac address-table vlan 1301", "MAC TABLE VLAN 1301"),
+        ("show cdp neighbors", "CDP NEIGHBORS"),
+        ("show ip igmp snooping groups vlan 101", "IGMP SNOOPING VLAN 101 (BMS1)"),
+        ("show ip igmp snooping groups vlan 1301", "IGMP SNOOPING VLAN 1301 (EUT)"),
+    ], os.path.join(iter_dir, f"Iter{iteration}_Pre_L2_9300-2_Baseline.txt"))
 
     # ---- Phase 1 Gate ----
     banner("PHASE 1 GATE CHECK", '*')
@@ -178,9 +280,12 @@ def phase1(iter_dir, iteration):
     print("    [ ] CC: Network health >= 80%")
     print("    [ ] L2H-1: Po40 UP, Te4/0/1(P) + Te4/0/2(P)")
     print("    [ ] L2H-1: 2 LISP sessions UP, OSPF FULL to BC1")
+    print("    [ ] L2H-1: Multicast mroute 225.1.1.1 present, PIM neighbors UP")
     print("    [ ] BC1: Po40 UP, Fif1/0/13(P) + Fif1/0/14(P)")
+    print("    [ ] L2_9300-1: IGMP snooping groups on VLAN 101/1301")
+    print("    [ ] L2_9300-2: IGMP snooping groups on VLAN 101/1301")
     print("    [ ] Screenshots captured (3 total)")
-    print("    [ ] CLI baselines saved (2 files)")
+    print("    [ ] CLI baselines saved (4 files)")
     pause("Confirm all checks PASS, then press ENTER to proceed to PHASE 2 (FAILURE)")
 
 
@@ -260,6 +365,12 @@ def phase2(iter_dir, iteration):
         ("show lisp session", "LISP SESSIONS"),
         ("show ip route summary", "ROUTE SUMMARY"),
         ("show cts role-based counters", "CTS COUNTERS"),
+        # -- Multicast during failure --
+        ("show ip mroute vrf BMS1 225.1.1.1", "MROUTE 225.1.1.1 (MUST still have entries)"),
+        ("show ip mfib vrf BMS1 225.1.1.1", "MFIB 225.1.1.1 HW COUNTERS (check forwarding)"),
+        ("show ip pim vrf BMS1 neighbor", "PIM NEIGHBORS (VRF BMS1)"),
+        ("show ip igmp snooping groups vlan 101", "IGMP SNOOPING VLAN 101 (group 225.1.1.1)"),
+        ("show ip igmp snooping groups vlan 1301", "IGMP SNOOPING VLAN 1301"),
     ]
 
     output_all = ""
@@ -268,7 +379,7 @@ def phase2(iter_dir, iteration):
         out = run_and_print(conn, cmd)
         output_all += f"\n--- {label}: {cmd} ---\n{out}\n"
 
-    conn.disconnect()
+    safe_disconnect(conn)
     save_output(os.path.join(iter_dir, f"Iter{iteration}_During_L2H1_Failure.txt"), output_all)
 
     # ---- Step 2.5: BC1 During-Failure ----
@@ -281,6 +392,9 @@ def phase2(iter_dir, iteration):
         ("show lacp 40 counters", "LACP COUNTERS"),
         ("show ip ospf neighbor | include Port-channel40", "OSPF TO L2H-1"),
         ("show lisp session | include 192.168.102.40", "LISP TO L2H-1"),
+        # -- Multicast --
+        ("show ip mroute vrf BMS1 225.1.1.1", "MROUTE 225.1.1.1 (VRF BMS1)"),
+        ("show ip pim vrf BMS1 neighbor", "PIM NEIGHBORS (VRF BMS1)"),
     ]
 
     output_all = ""
@@ -289,11 +403,37 @@ def phase2(iter_dir, iteration):
         out = run_and_print(conn, cmd)
         output_all += f"\n--- {label}: {cmd} ---\n{out}\n"
 
-    conn.disconnect()
+    safe_disconnect(conn)
     save_output(os.path.join(iter_dir, f"Iter{iteration}_During_BC1_Status.txt"), output_all)
 
-    # ---- Step 2.6: CC During-Failure ----
-    banner("STEP 2.6: CATALYST CENTER DURING-FAILURE", '-')
+    # ---- Step 2.6: FS2_L2_9300-1 During ----
+    banner("STEP 2.6: FS2_L2_9300-1 DURING FAILURE (172.31.0.179)", '-')
+    collect_commands(L2_9300_1, [
+        ("show interfaces trunk", "TRUNKS"),
+        ("show spanning-tree vlan 101", "STP VLAN 101 (topology change?)"),
+        ("show spanning-tree vlan 1301", "STP VLAN 1301 (topology change?)"),
+        ("show mac address-table vlan 101", "MAC TABLE VLAN 101"),
+        ("show mac address-table vlan 1301", "MAC TABLE VLAN 1301"),
+        ("show ip igmp snooping groups vlan 101", "IGMP SNOOPING VLAN 101"),
+        ("show ip igmp snooping groups vlan 1301", "IGMP SNOOPING VLAN 1301"),
+        ("show logging | include LINK|UPDOWN|LINEPROTO|STP|TCN", "SYSLOG (filtered)"),
+    ], os.path.join(iter_dir, f"Iter{iteration}_During_L2_9300-1_Status.txt"))
+
+    # ---- Step 2.7: FS2_L2_9300-2 During ----
+    banner("STEP 2.7: FS2_L2_9300-2 DURING FAILURE (172.31.0.178)", '-')
+    collect_commands(L2_9300_2, [
+        ("show interfaces trunk", "TRUNKS"),
+        ("show spanning-tree vlan 101", "STP VLAN 101 (topology change?)"),
+        ("show spanning-tree vlan 1301", "STP VLAN 1301 (topology change?)"),
+        ("show mac address-table vlan 101", "MAC TABLE VLAN 101"),
+        ("show mac address-table vlan 1301", "MAC TABLE VLAN 1301"),
+        ("show ip igmp snooping groups vlan 101", "IGMP SNOOPING VLAN 101"),
+        ("show ip igmp snooping groups vlan 1301", "IGMP SNOOPING VLAN 1301"),
+        ("show logging | include LINK|UPDOWN|LINEPROTO|STP|TCN", "SYSLOG (filtered)"),
+    ], os.path.join(iter_dir, f"Iter{iteration}_During_L2_9300-2_Status.txt"))
+
+    # ---- Step 2.8: CC During-Failure ----
+    banner("STEP 2.8: CATALYST CENTER DURING-FAILURE", '-')
     print("  ACTION REQUIRED:")
     print("    1. Provision > Inventory > FS2_L2H_1")
     print("       - Record: Reachability, Health Score")
@@ -372,6 +512,12 @@ def phase3(iter_dir, iteration):
         ("show lisp session", "LISP SESSIONS"),
         ("show ip route summary", "ROUTE SUMMARY"),
         ("show cts role-based counters", "CTS COUNTERS"),
+        # -- Multicast --
+        ("show ip mroute vrf BMS1 225.1.1.1", "MROUTE 225.1.1.1 (VRF BMS1)"),
+        ("show ip mfib vrf BMS1 225.1.1.1", "MFIB 225.1.1.1 HW COUNTERS (VRF BMS1)"),
+        ("show ip pim vrf BMS1 neighbor", "PIM NEIGHBORS (VRF BMS1)"),
+        ("show ip igmp snooping groups vlan 101", "IGMP SNOOPING VLAN 101 (restored)"),
+        ("show ip igmp snooping groups vlan 1301", "IGMP SNOOPING VLAN 1301 (restored)"),
     ]
 
     output_all = ""
@@ -380,7 +526,7 @@ def phase3(iter_dir, iteration):
         out = run_and_print(conn, cmd)
         output_all += f"\n--- {label}: {cmd} ---\n{out}\n"
 
-    conn.disconnect()
+    safe_disconnect(conn)
     save_output(os.path.join(iter_dir, f"Iter{iteration}_Post_L2H1_Validation.txt"), output_all)
 
     # ---- Step 3.5: BC1 Post-Recovery ----
@@ -394,6 +540,9 @@ def phase3(iter_dir, iteration):
         ("show ip ospf neighbor", "OSPF NEIGHBORS"),
         ("show ip bgp summary", "BGP SUMMARY"),
         ("show lisp session", "LISP SESSIONS"),
+        # -- Multicast --
+        ("show ip mroute vrf BMS1 225.1.1.1", "MROUTE 225.1.1.1 (VRF BMS1)"),
+        ("show ip pim vrf BMS1 neighbor", "PIM NEIGHBORS (VRF BMS1)"),
     ]
 
     output_all = ""
@@ -402,11 +551,37 @@ def phase3(iter_dir, iteration):
         out = run_and_print(conn, cmd)
         output_all += f"\n--- {label}: {cmd} ---\n{out}\n"
 
-    conn.disconnect()
+    safe_disconnect(conn)
     save_output(os.path.join(iter_dir, f"Iter{iteration}_Post_BC1_Validation.txt"), output_all)
 
-    # ---- Step 3.6: CC Post-Recovery ----
-    banner("STEP 3.6: CATALYST CENTER POST-RECOVERY", '-')
+    # ---- Step 3.6: FS2_L2_9300-1 Post-Recovery ----
+    banner("STEP 3.6: FS2_L2_9300-1 POST-RECOVERY CLI", '-')
+    collect_commands(L2_9300_1, [
+        ("show interfaces trunk", "TRUNKS"),
+        ("show spanning-tree vlan 101", "STP VLAN 101 (restored)"),
+        ("show spanning-tree vlan 1301", "STP VLAN 1301 (restored)"),
+        ("show mac address-table vlan 101", "MAC TABLE VLAN 101"),
+        ("show mac address-table vlan 1301", "MAC TABLE VLAN 1301"),
+        ("show ip igmp snooping groups vlan 101", "IGMP SNOOPING VLAN 101 (restored)"),
+        ("show ip igmp snooping groups vlan 1301", "IGMP SNOOPING VLAN 1301 (restored)"),
+        ("show logging | include LINK|UPDOWN|LINEPROTO|STP|TCN", "SYSLOG (filtered)"),
+    ], os.path.join(iter_dir, f"Iter{iteration}_Post_L2_9300-1_Validation.txt"))
+
+    # ---- Step 3.7: FS2_L2_9300-2 Post-Recovery ----
+    banner("STEP 3.7: FS2_L2_9300-2 POST-RECOVERY CLI", '-')
+    collect_commands(L2_9300_2, [
+        ("show interfaces trunk", "TRUNKS"),
+        ("show spanning-tree vlan 101", "STP VLAN 101 (restored)"),
+        ("show spanning-tree vlan 1301", "STP VLAN 1301 (restored)"),
+        ("show mac address-table vlan 101", "MAC TABLE VLAN 101"),
+        ("show mac address-table vlan 1301", "MAC TABLE VLAN 1301"),
+        ("show ip igmp snooping groups vlan 101", "IGMP SNOOPING VLAN 101 (restored)"),
+        ("show ip igmp snooping groups vlan 1301", "IGMP SNOOPING VLAN 1301 (restored)"),
+        ("show logging | include LINK|UPDOWN|LINEPROTO|STP|TCN", "SYSLOG (filtered)"),
+    ], os.path.join(iter_dir, f"Iter{iteration}_Post_L2_9300-2_Validation.txt"))
+
+    # ---- Step 3.8: CC Post-Recovery ----
+    banner("STEP 3.8: CATALYST CENTER POST-RECOVERY", '-')
     print("  ACTION REQUIRED:")
     print("    1. Provision > Inventory > FS2_L2H_1")
     print("       - Verify: Reachable, Health >= 80%")
@@ -455,11 +630,18 @@ def main():
     print()
     print("  RESULTS CHECKLIST:")
     print("    [ ] Po40 stayed UP during member shutdown")
-    print("    [ ] Spirent: 0.000% loss (or <= 0.001%)")
+    print("    [ ] Spirent: 0.000% loss (or <= 0.001%) — unicast + multicast")
     print("    [ ] Zero dead flows")
     print("    [ ] LISP sessions maintained throughout")
     print("    [ ] OSPF adjacency never flapped")
+    print("    [ ] Multicast: mroute 225.1.1.1 present in VRF BMS1 during failure")
+    print("    [ ] Multicast: MFIB HW counters incrementing (forwarding active)")
+    print("    [ ] Multicast: PIM neighbors UP during failure")
+    print("    [ ] Multicast: IGMP snooping group 225.1.1.1 on VLAN 101")
+    print("    [ ] L2_9300-1: STP/IGMP snooping state captured")
+    print("    [ ] L2_9300-2: STP/IGMP snooping state captured")
     print("    [ ] Te4/0/1 re-bundled via LACP")
+    print("    [ ] Multicast: mroute/MFIB/PIM/IGMP restored to baseline")
     print("    [ ] All metrics match Phase 1 baseline")
     print()
     print("  CLI EVIDENCE:")
