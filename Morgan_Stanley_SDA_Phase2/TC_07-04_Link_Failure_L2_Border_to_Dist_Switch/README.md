@@ -4,6 +4,7 @@
 **Topology:** L2 Border with Dual L2 Trunks to Legacy Distribution Switches  
 **Failure Target:** Te4/0/20 trunk to L2-DIST-1 (STP failover to L2-DIST-2)  
 **Expected Behavior:** STP convergence with minimal packet loss, fabric side unaffected  
+**Scripts:** Two variants — L2 Border side (`run_tc_07-04.py`) and Distribution side (`run_tc_07-04_dist_side.py`)  
 
 ---
 
@@ -16,8 +17,22 @@ TC 07-04 completes the Phase 07 L2 Border negative test suite by validating **le
 | **TC 07-02** | Po40 to BC1 | OSPF/ECMP to BC2 | Layer 3 (OSPF/LISP) |
 | **TC 07-03** | Po41 to BC2 | OSPF/ECMP to BC1 | Layer 3 (OSPF/LISP) |
 | **TC 07-04** | Te4/0/20 to DIST-1 | STP to DIST-2 | Layer 2 (STP) |
+| **TC 07-04 (Dist Side)** | Te4/0/20 shut from DIST-1 | STP to DIST-2 | Layer 2 (STP) |
 
 **Key Difference:** TC 07-04 tests **Layer 2 trunk redundancy** to legacy non-SDA distribution switches, while TC 07-02/07-03 test **Layer 3 ECMP redundancy** to SDA Border Controllers.
+
+### Two Script Variants
+
+TC 07-04 includes **two complementary scripts** that shut the same trunk from opposite ends:
+
+| Script | Shutdown Device | L2H-1 Sees | CC Behavior |
+|--------|----------------|------------|-------------|
+| `run_tc_07-04.py` | FS2_L2H-1 (L2 Border side) | Admin-down (local) | 0 issues (intentional) |
+| `run_tc_07-04_dist_side.py` | L2-DIST-1 (Distribution side) | Link-down (remote) | May raise issue (fault) |
+
+**Why both?** Shutting from the L2 Border side produces an admin-down event (CC treats as intentional). Shutting from the Distribution side produces a link-down event (CC may treat as a fault). Both must converge via STP to Te4/0/21, but CC issue behavior differs — documenting this difference validates CC's fault detection accuracy.
+
+The dist_side variant also collects from **7 devices** (L2H-1, L2-DIST-1, L2-DIST-2, FS2_BC1, FS2_L2_9300-1, FS2_L2_9300-2) including the two legacy access switches behind the distribution tier, and adds **multicast verification** (PIM, MFIB, IGMP snooping) at each phase.
 
 ---
 
@@ -58,26 +73,30 @@ TC 07-04 completes the Phase 07 L2 Border negative test suite by validating **le
     │  C9404R          │          │  C9404R          │
     │  172.31.0.193    │          │  172.31.0.180    │
     │  Legacy Site     │          │  Legacy Site     │
-    └──────────────────┘          └──────────────────┘
+    └────────┬─────────┘          └────────┬─────────┘
              │                              │
-             └──────────────┬───────────────┘
-                            │
-                  ┌─────────▼─────────┐
-                  │  Legacy L2 Site   │
-                  │  (Non-SDA)        │
-                  └───────────────────┘
+    ┌────────▼─────────┐          ┌────────▼─────────┐
+    │ FS2_L2_9300-1    │          │ FS2_L2_9300-2    │
+    │ C9300-48S        │          │ C9300-48U        │
+    │ 172.31.0.179     │          │ 172.31.0.178     │
+    │ Legacy Access    │          │ Legacy Access    │
+    └──────────────────┘          └──────────────────┘
 ```
+
+> **Dist Side variant** (`run_tc_07-04_dist_side.py`): Shuts Te4/0/20 on **L2-DIST-1** instead of FS2_L2H-1. L2H-1 sees link-down (not admin-down). Also collects from FS2_L2_9300-1 and FS2_L2_9300-2.
 
 ### Interface Configuration
 
 | Device | Interface | Connected To | Type | VLANs | Auth |
 |--------|-----------|--------------|------|-------|------|
-| FS2_L2H-1 | Te4/0/20 | L2-DIST-1 Te1/1/1 | L2 Trunk | 101, 1301 | TACACS/local |
-| FS2_L2H-1 | Te4/0/21 | L2-DIST-2 Te1/1/1 | L2 Trunk | 101, 1301 | TACACS/local |
-| L2-DIST-1 | Te1/1/1 | FS2_L2H-1 Te4/0/20 | L2 Trunk | 101, 1301 | Local only |
-| L2-DIST-2 | Te1/1/1 | FS2_L2H-1 Te4/0/21 | L2 Trunk | 101, 1301 | Local only |
+| FS2_L2H-1 | Te4/0/20 | L2-DIST-1 Te4/0/20 | L2 Trunk | 101, 1301 | TACACS/local |
+| FS2_L2H-1 | Te4/0/21 | L2-DIST-2 Te1/0/20 | L2 Trunk | 101, 1301 | TACACS/local |
+| L2-DIST-1 | Te4/0/20 | FS2_L2H-1 Te4/0/20 | L2 Trunk | 101, 1301 | Local only |
+| L2-DIST-2 | Te1/0/20 | FS2_L2H-1 Te4/0/21 | L2 Trunk | 101, 1301 | Local only |
+| FS2_L2_9300-1 | Trunk | L2-DIST-1 | L2 Access | 101, 1301 | Local only |
+| FS2_L2_9300-2 | Trunk | L2-DIST-2 | L2 Access | 101, 1301 | Local only |
 
-**CRITICAL:** Distribution switches use **local authentication ONLY** (admin/CXlabs.123). They are NOT in ISE or TACACS.
+**CRITICAL:** Distribution and access switches use **local authentication ONLY** (admin/CXlabs.123). They are NOT in ISE or TACACS.
 
 ### VLANs Under Test
 
@@ -105,7 +124,8 @@ TC 07-04 completes the Phase 07 L2 Border negative test suite by validating **le
 
 ### Phase 2: Failure Event - Shutdown Te4/0/20
 
-**Command:** `interface TenGigabitEthernet4/0/20` → `shutdown` on FS2_L2H-1
+**Standard (`run_tc_07-04.py`):** `interface TenGigabitEthernet4/0/20` → `shutdown` on FS2_L2H-1  
+**Dist Side (`run_tc_07-04_dist_side.py`):** `interface TenGigabitEthernet4/0/20` → `shutdown` on L2-DIST-1
 
 **Expected STP Convergence Behavior:**
 1. Te4/0/20 goes down immediately
@@ -176,8 +196,10 @@ TC 07-04 completes the Phase 07 L2 Border negative test suite by validating **le
 | L2-DIST-1 | admin/CXlabs.123 | N/A | **LOCAL AUTH ONLY (no TACACS)** |
 | L2-DIST-2 | admin/CXlabs.123 | N/A | **LOCAL AUTH ONLY (no TACACS)** |
 | FS2_BC1 | admin1/CXlabs.123 | dnac_admin_tacacs/CXlabs.123 | May need alternate creds |
+| FS2_L2_9300-1 | admin/CXlabs.123 | N/A | **LOCAL AUTH ONLY** (dist_side only) |
+| FS2_L2_9300-2 | admin/CXlabs.123 | N/A | **LOCAL AUTH ONLY** (dist_side only) |
 
-**CRITICAL:** Distribution switches are legacy devices NOT provisioned in ISE/TACACS. Script uses `admin/CXlabs.123` directly.
+**CRITICAL:** Distribution and access switches are legacy devices NOT provisioned in ISE/TACACS. Scripts use `admin/CXlabs.123` directly.
 
 ### Traffic Validation
 
@@ -190,17 +212,31 @@ TC 07-04 completes the Phase 07 L2 Border negative test suite by validating **le
 
 ## Usage
 
-### Basic Usage
+### Basic Usage — L2 Border Side (Standard)
 
 ```bash
-# Run single iteration
-python3 run_tc_07-04.py --iter 1
-
-# Run all three iterations (recommended for ±20% consistency validation)
+# Shutdown Te4/0/20 on FS2_L2H-1 (L2 Border side)
 python3 run_tc_07-04.py --iter 1
 python3 run_tc_07-04.py --iter 2
 python3 run_tc_07-04.py --iter 3
 ```
+
+### Basic Usage — Distribution Side (Reverse)
+
+```bash
+# Shutdown Te4/0/20 on L2-DIST-1 (Distribution switch side)
+python3 run_tc_07-04_dist_side.py --iter 1
+python3 run_tc_07-04_dist_side.py --iter 2
+python3 run_tc_07-04_dist_side.py --iter 3
+```
+
+**Dist Side differences:**
+- Shuts the **same trunk** but from the **opposite end** (L2-DIST-1 instead of L2H-1)
+- L2H-1 sees **link-down** (not admin-down) — CC may raise an issue
+- Collects from **7 devices** including FS2_L2_9300-1 and FS2_L2_9300-2 (legacy access)
+- Includes **multicast verification** (PIM, MFIB, IGMP snooping) at each phase
+- CLI evidence saved to `DistSide/Iter{N}_CLI/` subdirectory
+- Screenshots saved to `DistSide/Images/Iteration{N}/`
 
 ### Script Workflow
 
@@ -263,10 +299,31 @@ python3 run_tc_07-04.py --iter 3
 - `show lisp session` (verify no impact to fabric)
 - `show port-channel summary` (Po40 health)
 
-**Saved to:**
+**Standard script (`run_tc_07-04.py`) saved to:**
 - `Iter1_CLI/` - Iteration 1 evidence
 - `Iter2_CLI/` - Iteration 2 evidence
 - `Iter3_CLI/` - Iteration 3 evidence
+
+**Dist Side script (`run_tc_07-04_dist_side.py`) saved to:**
+- `DistSide/Iter1_CLI/` - Iteration 1 evidence (18 files per iteration)
+- `DistSide/Iter2_CLI/` - Iteration 2 evidence
+- `DistSide/Iter3_CLI/` - Iteration 3 evidence
+
+**Dist Side additional collections per device:**
+
+**FS2_L2_9300-1 (Legacy access behind DIST-1):** *(dist_side only)*
+- `show interfaces trunk`, `show spanning-tree vlan 101/1301`
+- `show mac address-table vlan 101/1301`, `show cdp neighbors`
+- `show ip igmp snooping groups vlan 101/1301`
+- STP topology change notifications during failure
+
+**FS2_L2_9300-2 (Legacy access behind DIST-2):** *(dist_side only)*
+- Same commands as 9300-1, verifies unaffected by failure
+
+**Multicast verification (all devices, dist_side only):**
+- `show ip mroute vrf BMS1 225.1.1.1`, `show ip mfib vrf BMS1 225.1.1.1`
+- `show ip pim vrf BMS1 neighbor`, `show ip pim vrf BMS1 rp mapping`
+- `show ip igmp snooping groups vlan 101/1301`
 
 ### Evidence Collection
 
@@ -423,12 +480,12 @@ Run **3 iterations** and verify:
 
 | File | Purpose | Size |
 |------|---------|------|
-| `run_tc_07-04.py` | Main automation script | 766 lines |
+| `run_tc_07-04.py` | Main automation — shutdown on L2H-1 (L2 Border side) | 766 lines |
+| `run_tc_07-04_dist_side.py` | Reverse variant — shutdown on L2-DIST-1 (Distribution side) | 974 lines |
 | `continue_iter1.py` | Recovery script for Iter1 TACACS issue | 525 lines |
 | `README.md` | Comprehensive documentation | This file |
 | `TC-07-04_CXTM.txt` | Test case specification | 22 KB |
-| `00_START_HERE.txt` | Quick start guide | (To be created) |
-| `TC-07-04_Execution_Plan.txt` | Step-by-step guide | (To be created) |
+| `00_START_HERE.txt` | Quick start guide | |
 
 ---
 
@@ -473,10 +530,15 @@ cd general/Morgan_Stanley_SDA_Phase2/TC_07-04_Link_Failure_L2_Border_to_Dist_Swi
 # Install dependencies
 pip3 install netmiko
 
-# Run 3 iterations
+# === Standard Test (shutdown on L2 Border side) ===
 python3 run_tc_07-04.py --iter 1
 python3 run_tc_07-04.py --iter 2
 python3 run_tc_07-04.py --iter 3
+
+# === Dist Side Test (shutdown on Distribution switch side) ===
+python3 run_tc_07-04_dist_side.py --iter 1
+python3 run_tc_07-04_dist_side.py --iter 2
+python3 run_tc_07-04_dist_side.py --iter 3
 
 # If Iter1 crashes at TACACS reconnect:
 python3 continue_iter1.py
@@ -514,6 +576,7 @@ Internal Morgan Stanley SDA Phase 2 testbed validation. Not for external distrib
 
 ---
 
-**Last Updated:** April 7, 2026  
+**Last Updated:** April 9, 2026  
 **Tested By:** SVS Lab Team  
-**Test Status:** ✅ PASS (3 iterations completed, STP convergence <30s, fabric stable)
+**Test Status:** ✅ PASS (3 iterations completed, STP convergence <30s, fabric stable)  
+**Dist Side Status:** ✅ Added — shutdown from L2-DIST-1 with multicast + legacy access switch verification

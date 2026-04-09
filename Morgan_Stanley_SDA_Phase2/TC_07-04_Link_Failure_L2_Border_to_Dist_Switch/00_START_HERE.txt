@@ -12,11 +12,18 @@ TC 07-02/07-03 which test Layer 3 OSPF/ECMP failover.
   TC 07-02/07-03: Shut Po40/Po41 → OSPF/ECMP failover (hitless, <1 second)
   TC 07-04:       Shut Te4/0/20  → STP failover (measurable loss, 2-30 seconds)
 
+TWO VARIANTS:
+  run_tc_07-04.py           → Shutdown on FS2_L2H-1 (L2 Border side, admin-down)
+  run_tc_07-04_dist_side.py → Shutdown on L2-DIST-1 (Distribution side, link-down)
+  Same trunk, opposite ends. Compare CC issue behavior between the two.
+
 TOPOLOGY:
 ---------
   FS2_L2H-1 (172.31.0.194) - L2 Border Device
       ├── Te4/0/20 --> L2-DIST-1 (172.31.0.193) [WILL BE SHUT DOWN]
       └── Te4/0/21 --> L2-DIST-2 (172.31.0.180) [STAYS UP - Redundant Path]
+  L2-DIST-1 --> FS2_L2_9300-1 (172.31.0.179) [Legacy Access, dist_side only]
+  L2-DIST-2 --> FS2_L2_9300-2 (172.31.0.178) [Legacy Access, dist_side only]
 
   VLANs on Both Trunks: 101 (BMS), 1301 (EUT)
   STP Root: FS2_L2H-1 for both VLANs
@@ -71,8 +78,12 @@ CRITICAL NOTES:
 STEP 2: RUN ITERATION 1 (10-15 minutes)
 ----------------------------------------
 cd /path/to/TC_07-04_Link_Failure_L2_Border_to_Dist_Switch
-chmod +x run_tc_07-04.py
+
+# OPTION A: Standard (shutdown on L2 Border side)
 python3 run_tc_07-04.py --iter 1
+
+# OPTION B: Dist Side (shutdown on Distribution switch side)
+python3 run_tc_07-04_dist_side.py --iter 1
 
 The script will:
   1. Collect baseline CLI from L2H-1, DIST-1, DIST-2, BC1 → Iter1_CLI/
@@ -94,8 +105,13 @@ Manual Actions Required:
 
 STEP 3: RUN ITERATIONS 2 & 3 (20-30 minutes)
 ---------------------------------------------
+# Standard:
 python3 run_tc_07-04.py --iter 2   # Save screenshots to Images/Iteration2/
 python3 run_tc_07-04.py --iter 3   # Save screenshots to Images/Iteration3/
+
+# Dist Side:
+python3 run_tc_07-04_dist_side.py --iter 2   # Saves to DistSide/Iter2_CLI/
+python3 run_tc_07-04_dist_side.py --iter 3   # Saves to DistSide/Iter3_CLI/
 
 Purpose: Validate ±20% consistency across 3 iterations (Spirent best practice)
 
@@ -254,8 +270,14 @@ NEED MORE HELP?
 
 Full Documentation:
   - README.md - Comprehensive usage guide with topology details
-  - TC-07-04_Execution_Plan.txt - Step-by-step execution workflow
   - TC-07-04_CXTM.txt - Complete test case specification
+
+DIST SIDE VARIANT EXTRAS:
+  - Collects from 7 devices (adds FS2_L2_9300-1 and FS2_L2_9300-2)
+  - Includes multicast verification (PIM, MFIB, IGMP snooping) at each phase
+  - L2H-1 sees link-down (not admin-down) — CC may raise issue
+  - CLI saved to DistSide/Iter{N}_CLI/, screenshots to DistSide/Images/
+  - 18 files per iteration (vs 12 for standard)
 
 Related Test Cases:
   - TC 07-01: Single member link failure (LACP)
