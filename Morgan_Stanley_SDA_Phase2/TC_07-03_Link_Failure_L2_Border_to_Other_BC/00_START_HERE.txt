@@ -38,10 +38,12 @@ QUICK START - 3 STEPS TO RUN THE TEST
 
 STEP 1: PREREQUISITES (5 minutes)
 ----------------------------------
-✓ Verify devices reachable:
-    FS2_L2H-1: ssh admin1@172.31.0.194
-    FS2_BC1:   ssh admin1@172.31.2.0
-    FS2_BC2:   ssh admin1@172.31.2.2 (or dnac_admin_tacacs)
+✓ Verify devices reachable (5 devices):
+    FS2_L2H-1:     ssh admin1@172.31.0.194
+    FS2_BC1:       ssh admin1@172.31.2.0
+    FS2_BC2:       ssh admin1@172.31.2.2 (or dnac_admin_tacacs)
+    FS2_L2_9300-1: ssh admin@172.31.0.179  [LOCAL AUTH ONLY]
+    FS2_L2_9300-2: ssh admin@172.31.0.178  [LOCAL AUTH ONLY]
 
 ✓ Verify dual-homed topology UP:
     show interface Po40 | include line protocol     # Should be UP
@@ -59,15 +61,17 @@ cd /path/to/TC_07-03_Link_Failure_L2_Border_to_Other_BC
 chmod +x run_tc_07-03.py
 python3 run_tc_07-03.py --iter 1
 
-The script will:
-  1. Collect baseline CLI from L2H-1, BC1, BC2 → Iter1_CLI/
-  2. PAUSE and ask you to take Spirent screenshots
-  3. Shut down Po41 on FS2_L2H-1
-  4. PAUSE and ask you to capture failure screenshots
-  5. Collect during-failure CLI
-  6. Restore Po41 (no shutdown)
-  7. PAUSE and ask you to capture recovery screenshots
-  8. Collect post-recovery CLI
+The script will (v2.0):
+  1. Clear syslog buffers on all 5 devices
+  2. Collect baseline CLI from L2H-1, BC1, BC2, L2_9300-1, L2_9300-2 → Iter1_CLI/
+     (includes multicast: PIM, MFIB, IGMP snooping)
+  3. PAUSE and ask you to take Spirent screenshots
+  4. Shut down Po41 on FS2_L2H-1
+  5. PAUSE and ask you to capture failure screenshots
+  6. Collect during-failure CLI (all 5 devices + multicast verification)
+  7. Restore Po41 (no shutdown)
+  8. PAUSE and ask you to capture recovery screenshots
+  9. Collect post-recovery CLI (all 5 devices + multicast verification)
 
 Manual Actions Required:
   ⚠ Take Spirent screenshots at each PAUSE (baseline, failure, recovery)
@@ -156,10 +160,11 @@ PASS if ALL criteria met:
   ✓ Similar performance to TC 07-02 (proves bidirectional redundancy)
 
 DELIVERABLES:
-  ✓ CLI evidence: Iter1_CLI/, Iter2_CLI/, Iter3_CLI/
+  ✓ CLI evidence: Iter1_CLI/, Iter2_CLI/, Iter3_CLI/ (15 files/iter, 5 devices x 3 phases)
   ✓ Spirent screenshots: Images/ folder (18+ screenshots)
   ✓ CXTM results: TC-07-03_CXTM_Results.txt
   ✓ Word report: TC-07-03_Link_Failure_L2_Border_to_Other_BC_Report.docx
+  ✓ Multicast evidence: mroute, MFIB HW counters, PIM, IGMP snooping per phase
 
 ================================================================================
 NEED MORE HELP?

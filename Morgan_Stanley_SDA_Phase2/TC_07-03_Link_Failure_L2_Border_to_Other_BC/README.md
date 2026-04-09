@@ -4,6 +4,7 @@
 **Topology:** Dual-Homed L2 Border with Redundant Port-Channels (Po40 + Po41)  
 **Failure Target:** Po41 (to FS2_BC2) - Mirror test of TC 07-02  
 **Expected Behavior:** HITLESS or NEAR-HITLESS failover via Po40 redundancy  
+**Script Version:** v2.0 — 5-device collection with multicast verification (872 lines)  
 
 ---
 
@@ -66,13 +67,26 @@ TC 07-03 (This Test - Dual-Homed Mirror):
                    │   C9404R          │
                    │   172.31.0.194    │
                    │   L2 Border       │
-                   └───────────────────┘
+                   └─────────┬─────────┘
                              │
-                   ┌─────────▼─────────┐
-                   │  Legacy L2 Site   │
-                   │  (Non-SDA)        │
-                   └───────────────────┘
+              ┌──────────────┴──────────────┐
+              │ Te4/0/20            Te4/0/21│
+              │                              │
+    ┌─────────▼────────┐          ┌─────────▼────────┐
+    │  L2-DIST-1       │          │  L2-DIST-2       │
+    │  C9404R          │          │  C9404R          │
+    │  172.31.0.193    │          │  172.31.0.180    │
+    └────────┬─────────┘          └────────┬─────────┘
+             │                              │
+    ┌────────▼─────────┐          ┌────────▼─────────┐
+    │ FS2_L2_9300-1    │          │ FS2_L2_9300-2    │
+    │ C9300-48S        │          │ C9300-48U        │
+    │ 172.31.0.179     │          │ 172.31.0.178     │
+    │ Legacy Access    │          │ Legacy Access    │
+    └──────────────────┘          └──────────────────┘
 ```
+
+> **v2.0 Enhancement:** Script now also collects from FS2_L2_9300-1 and FS2_L2_9300-2 (legacy access switches behind the distribution tier) to capture STP topology changes and IGMP snooping state during the fabric-side failure event.
 
 ### Addressing
 
@@ -147,6 +161,8 @@ TC 07-03 (This Test - Dual-Homed Mirror):
 - **FS2_L2H-1** (172.31.0.194) - Catalyst 9404R - L2 Border Device
 - **FS2_BC1** (172.31.2.0) - Catalyst 9606R - Border Controller 1
 - **FS2_BC2** (172.31.2.2) - Catalyst 9606R - Border Controller 2
+- **FS2_L2_9300-1** (172.31.0.179) - Catalyst 9300-48S - Legacy Access (behind DIST-1)
+- **FS2_L2_9300-2** (172.31.0.178) - Catalyst 9300-48U - Legacy Access (behind DIST-2)
 - **Spirent STCv** (172.31.0.22:8088) - Traffic generator
 - **Catalyst Center** (172.31.0.197) - SDA controller
 
@@ -171,6 +187,8 @@ TC 07-03 (This Test - Dual-Homed Mirror):
 | FS2_L2H-1 | admin1/CXlabs.123 | admin/CXlabs.123 | Script has auto-fallback |
 | FS2_BC1 | admin1/CXlabs.123 | N/A | No known issues |
 | FS2_BC2 | admin1/CXlabs.123 | dnac_admin_tacacs/CXlabs.123 | May need alternate creds |
+| FS2_L2_9300-1 | admin/CXlabs.123 | N/A | **LOCAL AUTH ONLY** (no TACACS) |
+| FS2_L2_9300-2 | admin/CXlabs.123 | N/A | **LOCAL AUTH ONLY** (no TACACS) |
 
 ### Traffic Validation
 
@@ -198,9 +216,10 @@ python3 run_tc_07-03.py --iter 3
 ### Script Workflow
 
 1. **Pre-Test Validation:**
-   - Connects to all 3 devices (L2H-1, BC1, BC2)
+   - Clears syslog buffers on all 5 devices for clean evidence collection
+   - Connects to all 5 devices (L2H-1, BC1, BC2, L2_9300-1, L2_9300-2)
    - Handles TACACS authentication with automatic fallback to local credentials
-   - Collects baseline CLI outputs and saves to `Iter{N}_CLI/` directory
+   - Collects baseline CLI outputs (including multicast) and saves to `Iter{N}_CLI/` directory
 
 2. **Manual Pause Points:**
    - Script pauses and asks you to take Spirent screenshots (baseline)
@@ -227,20 +246,23 @@ python3 run_tc_07-03.py --iter 3
 
 ### CLI Outputs Collected
 
-**Per device (L2H-1, BC1, BC2):**
-- `show version`
-- `show inventory`
-- `show interface status`
-- `show port-channel summary`
-- `show ip interface brief`
-- `show ip route vrf *`
-- `show ip ospf neighbor`
-- `show lisp session`
-- `show run interface Po40` (L2H-1 only)
-- `show run interface Po41` (L2H-1 only)
+**FS2_L2H-1 (L2 Border):**
+- Port-channel status (Po40/Po41, all members Te4/0/1-4, human-readable)
+- LACP neighbor/counter details
+- OSPF, BFD, LISP sessions, CTS counters, route summary
+- **Multicast:** PIM neighbors, RP mapping, mroute 225.1.1.1, MFIB HW counters, IGMP snooping (VRF BMS1)
+
+**FS2_BC1 / FS2_BC2 (Border Controllers):**
+- Port-channel, LACP, OSPF, BGP, LISP, BFD
+- **Multicast:** mroute 225.1.1.1, PIM neighbors (VRF BMS1)
+
+**FS2_L2_9300-1 / FS2_L2_9300-2 (Legacy Access Switches):**
+- Trunk interfaces, STP VLAN 101/1301, MAC address tables
+- CDP neighbors, IGMP snooping groups VLAN 101/1301
+- STP topology change notifications (during/post phases)
 
 **Saved to:**
-- `Iter1_CLI/` - Iteration 1 evidence
+- `Iter1_CLI/` - Iteration 1 evidence (15 files: 5 devices x 3 phases)
 - `Iter2_CLI/` - Iteration 2 evidence
 - `Iter3_CLI/` - Iteration 3 evidence
 
@@ -400,13 +422,13 @@ You must manually:
 
 | File | Purpose | Size |
 |------|---------|------|
-| `run_tc_07-03.py` | Main automation script | 711 lines |
+| `run_tc_07-03.py` | Main automation script (v2.0 — 5-device, multicast) | 872 lines |
 | `generate_report.py` | Word report generator | 47 KB |
-| `00_START_HERE.txt` | Quick start guide | This file |
+| `00_START_HERE.txt` | Quick start guide | 7 KB |
 | `README.md` | Comprehensive documentation | This file |
 | `TC-07-03_CXTM.txt` | Test case specification | 23 KB |
 | `TC-07-03_CXTM_Results.txt` | Actual test results | 11 KB |
-| `TC-07-03_Execution_Plan.txt` | Step-by-step execution guide | (To be created) |
+| `TC-07-03_Execution_Plan.txt` | Step-by-step execution guide | 20 KB |
 
 ---
 
@@ -464,6 +486,13 @@ Internal Morgan Stanley SDA Phase 2 testbed validation. Not for external distrib
 
 ---
 
-**Last Updated:** April 7, 2026  
+**Last Updated:** April 9, 2026  
 **Tested By:** SVS Lab Team  
 **Test Status:** ✅ PASS (3 iterations completed, <1s convergence, <1% loss)
+
+### Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| v1.0 | April 7, 2026 | Initial release — 3-device collection (L2H-1, BC1, BC2) |
+| v2.0 | April 9, 2026 | Added FS2_L2_9300-1/9300-2 legacy access switch collection, multicast verification (PIM/MFIB/IGMP snooping) on all devices, log clearing on all 5 devices, expanded checklist with multicast items |
