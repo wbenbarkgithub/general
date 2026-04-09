@@ -3,7 +3,15 @@
 TC 07-04 (Distribution Side): Link Failure From Distribution Switch to L2 Border
 Shutdown Te4/0/20 on L2-DIST-1 (distribution side), Te4/0/21 (L2H-1 to L2-DIST-2) provides redundancy.
 
-This is the REVERSE of run_tc_07-04.py — same trunk, shutdown from the DIST switch end.
+Version: 1.0
+Date:    April 9, 2026
+
+Changelog:
+  v1.0 (April 9, 2026)  - Initial release: 7-device collection (L2H-1, DIST-1, DIST-2,
+                           BC1, L2_9300-1, L2_9300-2), multicast verification (PIM, MFIB,
+                           IGMP snooping), 973 lines. Shutdown on L2-DIST-1 (dist side).
+                         - REVERSE of run_tc_07-04.py — same trunk, opposite end
+                         - L2H-1 sees link-down (not admin-down), CC may raise issue
 
 Topology:
   L2-DIST-1 --Te4/0/20 (L2 trunk)--> FS2_L2H-1 Te4/0/20  <-- DIST-1 SIDE SHUT

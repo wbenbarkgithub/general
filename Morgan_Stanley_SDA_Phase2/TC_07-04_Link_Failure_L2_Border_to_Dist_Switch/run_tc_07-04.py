@@ -3,6 +3,15 @@
 TC 07-04: Link Failure From L2 Border to Distribution Switch
 Shutdown Te4/0/20 (L2 trunk to L2-DIST-1), Te4/0/21 (to L2-DIST-2) provides redundancy.
 
+Version: 1.0
+Date:    April 7, 2026
+
+Changelog:
+  v1.0 (April 7, 2026)  - Initial release: 5-device collection (L2H-1, DIST-1, DIST-2,
+                           BC1, L2_9300-1/9300-2), STP failover, multicast verification,
+                           766 lines. Shutdown on L2H-1 (L2 Border side).
+                         - See also: run_tc_07-04_dist_side.py (reverse variant)
+
 Topology:
   FS2_L2H-1 --Te4/0/20 (L2 trunk)--> L2-DIST-1 (172.31.0.193)  <-- WILL BE SHUT
   FS2_L2H-1 --Te4/0/21 (L2 trunk)--> L2-DIST-2 (172.31.0.180)  <-- REDUNDANT (stays UP)

@@ -3,6 +3,19 @@
 TC 07-03: Link Failure From L2 Border Physical Link to Other BC Node
 DUAL-HOMED TOPOLOGY - Po41 shutdown with Po40 providing redundancy
 
+Version: 2.0
+Date:    April 8, 2026
+
+Changelog:
+  v1.0 (April 7, 2026)  - Initial release: 3-device collection (L2H-1, BC1, BC2),
+                           712 lines, OSPF/LISP/BFD/LACP validation
+  v2.0 (April 8, 2026)  - Added FS2_L2_9300-1/9300-2 legacy access switch collection
+                           (STP, IGMP snooping, MAC tables, topology change notifications)
+                         - Added multicast verification on L2H-1/BC1/BC2 (PIM neighbors,
+                           mroute 225.1.1.1, MFIB HW counters, IGMP snooping VRF BMS1)
+                         - Added Step 1.0 log clearing on all 5 devices
+                         - 872 lines, 5-device collection, 15 files per iteration
+
 Mirror of TC 07-02 retest but shutting the OPPOSITE port-channel:
   TC 07-02 retest: Shut Po40 (BC1), Po41 (BC2) provides redundancy
   TC 07-03:        Shut Po41 (BC2), Po40 (BC1) provides redundancy

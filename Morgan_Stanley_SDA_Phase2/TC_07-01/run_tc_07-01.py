@@ -3,6 +3,19 @@
 TC 07-01: Link Failure from L2 Border PortChannel Member to Fabric BC Node
 Interactive execution script - pauses at each step for GUI screenshot capture.
 
+Version: 2.0
+Date:    April 8, 2026
+
+Changelog:
+  v1.0 (April 6, 2026)  - Initial release: 3-device collection (L2H-1, BC1, BC2),
+                           LACP member shutdown (Te4/0/1), Po40 stays UP
+  v2.0 (April 8, 2026)  - Added FS2_L2_9300-1/9300-2 legacy access switch collection
+                           (STP, IGMP snooping, MAC tables, topology change notifications)
+                         - Added multicast verification on L2H-1/BC1/BC2 (PIM neighbors,
+                           mroute 225.1.1.1, MFIB HW counters, IGMP snooping VRF BMS1)
+                         - Added robustness improvements (connection retry, error handling)
+                         - 675 lines, 5-device collection
+
 Usage: python3 run_tc_07-01.py [--iter 1|2|3]
 """
 
