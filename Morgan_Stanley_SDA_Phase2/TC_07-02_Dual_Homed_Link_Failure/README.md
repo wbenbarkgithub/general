@@ -1,7 +1,7 @@
 # TC 07-02 RETEST - Dual-Homed Topology Validation
 
-**Created:** April 7, 2026  
-**Status:** Ready for Execution  
+**Created:** April 7, 2026 | **Updated:** April 9, 2026  
+**Status:** PASS (3 iterations completed April 7-9, 2026)  
 **Purpose:** Retest TC 07-02 after implementing Po41 dual-homing to FS2_BC2
 
 ---
@@ -52,13 +52,15 @@ FS2_L2H-1 ────┤
 
 ## Script Changes
 
-### Enhanced Device Collection
+### Enhanced Device Collection (v2.0 — April 8-9, 2026)
 
 **Original:** Collected from FS2_L2H-1 and FS2_BC1 only  
-**Updated:** Collects from **3 devices:**
+**Updated (v2.0):** Collects from **5 devices:**
 1. **FS2_L2H-1** (172.31.0.194) - L2 Border with dual port-channels
 2. **FS2_BC1** (172.31.2.0) - Border Controller for Po40
-3. **FS2_BC2** (172.31.2.2) - Border Controller for Po41 (**NEW**)
+3. **FS2_BC2** (172.31.2.2) - Border Controller for Po41
+4. **FS2_L2_9300-1** (172.31.0.179) - Legacy L2 switch (STP/IGMP snooping) (**NEW v2.0**)
+5. **FS2_L2_9300-2** (172.31.0.178) - Legacy L2 switch (STP/IGMP snooping) (**NEW v2.0**)
 
 ### New Commands Added
 
@@ -71,6 +73,19 @@ FS2_L2H-1 ────┤
 - `show ip route ospf | include 192.168` - Verify dual paths
 - `show bfd neighbors` - BFD sessions to both BCs
 
+**Multicast Verification (v2.0):**
+- `show ip mroute vrf BMS1 225.1.1.1` - Multicast route table (all phases)
+- `show ip mfib vrf BMS1 225.1.1.1` - MFIB hardware counters (forwarding proof)
+- `show ip pim vrf BMS1 neighbor` - PIM neighbors during failure
+- `show ip igmp snooping groups vlan 101` - IGMP snooping on BMS1 VLAN
+- `show ip igmp snooping groups vlan 1301` - IGMP snooping on EUT VLAN
+
+**L2_9300 Switch Collection (v2.0):**
+- `show spanning-tree vlan 101/1301` - STP topology during failure
+- `show mac address-table vlan 101/1301` - MAC table changes
+- `show ip igmp snooping groups vlan 101/1301` - IGMP snooping state
+- `show logging | include STP|TCN` - STP topology change events
+
 **BC2-Specific Collection:**
 - Full CLI collection from FS2_BC2 during all phases
 - Verify Po41 stays UP during Po40 failure
@@ -82,6 +97,8 @@ FS2_L2H-1 ────┤
 - Verify OSPF FULL to BOTH BC1 and BC2
 - Verify ECMP routing (equal cost via both paths)
 - Verify BFD sessions to both BCs
+- Verify multicast mroute 225.1.1.1 present in VRF BMS1 (v2.0)
+- Verify L2_9300-1/2 IGMP snooping groups on VLAN 101/1301 (v2.0)
 
 **Phase 2 (Failure):**
 - Po40 goes DOWN ✓ (expected)
@@ -92,11 +109,14 @@ FS2_L2H-1 ────┤
 - TACACS remains accessible via Po41 (no need for local admin)
 - Minimal packet loss (<1 sec) or HITLESS
 - Dead flows: MINIMAL or ZERO
+- Multicast: mroute/MFIB/PIM maintained via Po41 (v2.0)
+- L2_9300: STP topology changes and IGMP snooping captured (v2.0)
 
 **Phase 3 (Recovery):**
 - Po40 restores normally
 - ECMP resumes (traffic via both Po40 and Po41)
 - No traffic impact during recovery (Po41 already carrying load)
+- Multicast: mroute/MFIB/PIM/IGMP restored to baseline (v2.0)
 
 ---
 
@@ -183,22 +203,28 @@ python3 run_tc_07-02_retest.py --iter 3
 
 ## Evidence Collection
 
-### CLI Files (9 per iteration)
+### CLI Files (15 per iteration — v2.0)
 
-**Baseline:**
-- `Iter{n}_Pre_L2H1_Baseline.txt` - FS2_L2H-1 pre-test state
-- `Iter{n}_Pre_BC1_Baseline.txt` - FS2_BC1 pre-test state
-- `Iter{n}_Pre_BC2_Baseline.txt` - FS2_BC2 pre-test state (**NEW**)
+**Baseline (5 files):**
+- `Iter{n}_Pre_L2H1_Baseline.txt` - FS2_L2H-1 pre-test state (incl. multicast)
+- `Iter{n}_Pre_BC1_Baseline.txt` - FS2_BC1 pre-test state (incl. multicast)
+- `Iter{n}_Pre_BC2_Baseline.txt` - FS2_BC2 pre-test state (incl. multicast)
+- `Iter{n}_Pre_L2_9300-1_Baseline.txt` - L2 switch STP/IGMP baseline (**NEW v2.0**)
+- `Iter{n}_Pre_L2_9300-2_Baseline.txt` - L2 switch STP/IGMP baseline (**NEW v2.0**)
 
-**During Failure:**
-- `Iter{n}_During_L2H1_Failure.txt` - L2H-1 with Po40 DOWN, Po41 UP
-- `Iter{n}_During_BC1_Status.txt` - BC1 with Po40 DOWN
-- `Iter{n}_During_BC2_Status.txt` - BC2 with Po41 UP (**NEW - CRITICAL**)
+**During Failure (5 files):**
+- `Iter{n}_During_L2H1_Failure.txt` - L2H-1 with Po40 DOWN, Po41 UP (incl. multicast)
+- `Iter{n}_During_BC1_Status.txt` - BC1 with Po40 DOWN (incl. multicast)
+- `Iter{n}_During_BC2_Status.txt` - BC2 with Po41 UP (incl. multicast, **CRITICAL**)
+- `Iter{n}_During_L2_9300-1_Status.txt` - L2 switch STP/IGMP during failure (**NEW v2.0**)
+- `Iter{n}_During_L2_9300-2_Status.txt` - L2 switch STP/IGMP during failure (**NEW v2.0**)
 
-**Post Recovery:**
-- `Iter{n}_Post_L2H1_Validation.txt` - L2H-1 with ECMP restored
-- `Iter{n}_Post_BC1_Validation.txt` - BC1 with Po40 restored
-- `Iter{n}_Post_BC2_Validation.txt` - BC2 with Po41 continuing (**NEW**)
+**Post Recovery (5 files):**
+- `Iter{n}_Post_L2H1_Validation.txt` - L2H-1 with ECMP restored (incl. multicast)
+- `Iter{n}_Post_BC1_Validation.txt` - BC1 with Po40 restored (incl. multicast)
+- `Iter{n}_Post_BC2_Validation.txt` - BC2 with Po41 continuing (incl. multicast)
+- `Iter{n}_Post_L2_9300-1_Validation.txt` - L2 switch STP/IGMP restored (**NEW v2.0**)
+- `Iter{n}_Post_L2_9300-2_Validation.txt` - L2 switch STP/IGMP restored (**NEW v2.0**)
 
 ### Screenshots (8 per iteration)
 Same as original test:
@@ -211,8 +237,8 @@ Same as original test:
 - `Iter{n}_PLA_Convergence_Analysis.xlsx` - PLA analysis Excel
 - `Iter{n}_PLA_Analysis.png` - PLA screenshot
 
-**Total evidence per iteration:** 20 files  
-**Total evidence (3 iterations):** 60 files
+**Total evidence per iteration:** 26 files (15 CLI + 8 screenshots + 3 Spirent)  
+**Total evidence (3 iterations):** 78 files
 
 ---
 
@@ -357,7 +383,14 @@ Update TC 07-02 CXTM with:
 
 ---
 
-**Document Version:** 1.0  
-**Created:** April 7, 2026  
+**Document Version:** 2.0  
+**Created:** April 7, 2026 | **Updated:** April 9, 2026  
 **Author:** Claude Code (Anthropic)  
 **Project:** Morgan Stanley SDA Phase 2 - TC 07-02 Retest (Dual-Homed)
+
+### Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | April 7, 2026 | Initial retest script (3 devices: L2H-1, BC1, BC2) |
+| 2.0 | April 8-9, 2026 | Added multicast 225.1.1.1 verification (mroute/MFIB/PIM/IGMP) across all phases. Added L2_9300-1 and L2_9300-2 collection (STP topology, IGMP snooping, MAC tables). 5 devices, 15 CLI files per iteration. Updated CXTM to unified format (PASS). |
