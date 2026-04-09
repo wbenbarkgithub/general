@@ -1,0 +1,65 @@
+TC 07-01: Link Failure From L2 Border Port-Channel Member to Fabric BC Node — Execution Results
+Morgan Stanley SDA Phase 2 | April 9, 2026
+Result: PASS
+
+
+EXECUTIVE SUMMARY
+
+TC 07-01 validates that shutting down a single LACP Port-Channel member link (TenGigabitEthernet4/0/1) between the L2 Border node FS2_L2H-1 and Fabric Border Controller FS2_BC1 does not bring down Port-Channel 40 and causes zero packet loss to L2 handoff traffic. The surviving member (Te4/0/2) absorbs all traffic at 10 Gbps (reduced from 20 Gbps baseline).
+
+Three iterations were executed. All produced identical results: Po40 remained operationally UP, Spirent confirmed 0.000% packet loss across 440+ streams, LISP sessions maintained 2/2 established, OSPF adjacency remained FULL, and LACP re-bundled Te4/0/1 within ~10 seconds after recovery. Zero CTS denied counters throughout.
+
+Multicast verification confirmed group 225.1.1.1 (VRF BMS1, source 10.5.28.11, RP 10.5.32.1) was completely unaffected by the single member failure. PIM neighbors on LISP0.4099 remained 2/2 UP, mroute entries preserved, MFIB hardware forwarding continued at ~1000-1044 pps with zero RPF failures, and IGMP snooping on VLAN 101 remained stable on Te4/0/20 throughout all phases. Po40 remaining UP means the entire multicast path is uninterrupted.
+
+CLI data was collected from 4 devices (L2H-1, BC1, L2_9300-1, L2_9300-2) across 3 phases and 3 iterations — 36 CLI files total.
+
+
+RESULT
+
+Testbed: CC 2.3.7.9-70301 (172.31.229.151), IOS-XE 17.15.4 on all devices
+Devices: FS2_L2H-1 (C9404R, 172.31.0.194), FS2_BC1 (C9606R, 172.31.2.0)
+Failure Target: Te4/0/1 (Po40 member to FS2_BC1 Fif1/0/13)
+Surviving Member: Te4/0/2 (Po40 member to FS2_BC1 Fif1/0/14)
+Po40 Status During: UP (RU) — single member (Te4/0/2) carries all traffic
+
+Step 1 — Baseline: Po40(RU) Te4/0/1(P)+Te4/0/2(P), BW 20G, OSPF FULL to BC1, BFD Up/Up, LISP 2/2 established. Multicast routing enabled, PIM 2/2 neighbors on LISP0.4099, mroute (*,225.1.1.1) SJC with OIF Vlan101, (S,G) 10.5.28.11 JT at 1004 pps HW forwarding, IGMP snooping 225.1.1.1 on Te4/0/20. Spirent 0.000% loss. PASS.
+
+Step 2 — Failure (Te4/0/1 shut): Po40(RU) Te4/0/1(D)+Te4/0/2(P), BW 10G. OSPF FULL, BFD Up/Up, LISP 2/2 established. Spirent 0.000% loss, 0 dead flows. Multicast: PIM 2/2 UP, mroute entries preserved, MFIB ~1000 pps HW forwarding (zero RPF failures), IGMP snooping 225.1.1.1 stable on Te4/0/20. BC1 mroute (*,225.1.1.1) maintained. Zero CTS denied. CC raised P1 issue for Te4/0/1 down. PASS.
+
+Step 3 — Recovery (Te4/0/1 no shut): Po40(RU) Te4/0/1(P)+Te4/0/2(P), BW 20G restored. LACP rebundle ~10s. Multicast: MFIB ~1019 pps, all state restored. Spirent 0.000%. PASS.
+
+
+RESULT SUMMARY
+
+Verification Step                                    Expected              Observed                          Result
+Po40 remains UP during member shutdown               Po40(RU)              Po40(RU) Te4/0/1(D)+Te4/0/2(P)    PASS
+Spirent 0.000% packet loss                           0.000%                0.000% all 3 iters                PASS
+Zero dead flows                                      0                     0 all 3 iters                     PASS
+LISP sessions maintained (2/2)                       2/2 estab             2/2 estab all 3 iters             PASS
+OSPF adjacency stable (no flap)                      FULL                  FULL all 3 iters                  PASS
+LACP rebundle < 30 seconds                           < 30s                 ~10s all 3 iters                  PASS
+All metrics restored after recovery                  Baseline match        Restored all 3 iters              PASS
+Zero CTS denied counters                             0                     HW-Denied=0 all 3 iters           PASS
+Multicast routing ENABLED during failure             enabled               enabled all 3 iters               PASS
+PIM neighbors on LISP0.4099 UP during failure        2/2 UP                2/2 UP all 3 iters                PASS
+Mroute (*,225.1.1.1) maintained with OIF Vlan101     SJC, OIF present      SJC, OIF Vlan101 all 3 iters      PASS
+Mroute (S,G) HW forwarding ~1000 pps                Active                1000-1044 pps all 3 iters         PASS
+MFIB zero RPF failures/drops                         0/0                   0/0 all 3 iters                   PASS
+IGMP snooping 225.1.1.1 stable on Te4/0/20          Te4/0/20              Te4/0/20 all phases all iters     PASS
+BC1 mroute (*,225.1.1.1) maintained                  Present               S flag, present all 3 iters       PASS
+Results consistent across 3 iterations               Identical             Identical all 3 iters             PASS
+
+Overall: PASS (16/16 criteria)
+
+TC 07-01 confirms that a single LACP member failure on Po40 causes zero disruption to unicast and multicast traffic. Po40 remains UP with the surviving member, all control plane sessions (OSPF, BFD, LISP, PIM) are unaffected, and multicast group 225.1.1.1 continues hardware forwarding at ~1000 pps with zero drops. This is the expected behavior for LACP redundancy — the port-channel absorbs member failures transparently.
+
+
+EVIDENCE INVENTORY
+
+CLI Files: 36 total (12 per iteration x 3 iterations, 4 devices x 3 phases)
+  L2H1 (Pre/During/Post) — etherchannel, interfaces, OSPF, BFD, LISP, CTS, PIM, mroute, MFIB, IGMP snooping
+  BC1 (Pre/During/Post)  — etherchannel, OSPF, LISP, BFD, mroute, PIM
+  L2_9300-1 (Pre/During/Post) — STP, IGMP snooping, trunk, MAC
+  L2_9300-2 (Pre/During/Post) — STP, IGMP snooping, trunk, MAC
+Screenshots: 33 (Iteration 1: 27, Observation: 6)
+Spirent: Convergence data in 07-01_Convergence_Drops.xlsx

@@ -5,7 +5,8 @@
 **CXTM ID:** 1872836  
 **Author:** wbenbark  
 **Date:** April 2026  
-**Version:** 2.0 (Updated April 8, 2026)
+**Status:** PASS (3 iterations completed April 9, 2026)  
+**Version:** 2.1 (Updated April 9, 2026)
 
 ## Overview
 
@@ -99,6 +100,14 @@ Comprehensive test case documentation including:
 - Pass/fail criteria
 - Technical notes (LACP behavior, hash redistribution, LISP/OSPF impact)
 - Deliverables checklist
+
+### 4. `TC-07-01_CXTM_Results.txt` (Execution Results — PASS)
+
+Unified-format execution results from April 9, 2026 run:
+- Executive summary with pass/fail determination
+- 3-iteration convergence data
+- Multicast verification results (225.1.1.1 VRF BMS1)
+- L2_9300 STP/IGMP snooping observations
 
 ## Test Phases
 
@@ -236,3 +245,11 @@ For questions or issues:
 - LACP (IEEE 802.3ad)
 - Catalyst Center 2.3.7.9 Documentation
 - Morgan Stanley SDA Phase 2 Project Documentation
+
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | April 6, 2026 | Initial release: 3-device collection (L2H-1, BC1, BC2), LACP member shutdown |
+| 2.0 | April 8, 2026 | Added L2_9300-1/2 collection (STP, IGMP snooping, MAC tables). Added multicast verification (PIM, mroute 225.1.1.1, MFIB HW counters). 5-device, 12 CLI files/iteration. |
+| 2.1 | April 9, 2026 | Clean script (removed embedded changelog header). Added unified CXTM_Results.txt (PASS). Status updated to PASS after 3 successful iterations. |
